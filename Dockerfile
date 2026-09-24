@@ -16,7 +16,10 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/*
 
 COPY package.json package-lock.json ./
-RUN npm ci
+# Lockfile was generated with npm 10.9.8. Newer npm treats optional ajv peers
+# as out of sync and `npm ci` exits 1.
+RUN npm install -g npm@10.9.8 \
+  && npm ci
 
 COPY . .
 RUN npm run build \
