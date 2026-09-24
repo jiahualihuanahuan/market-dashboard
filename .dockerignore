@@ -1,0 +1,14 @@
+node_modules
+.output
+.vercel
+.git
+.grok/og-pending
+screenshots
+artifacts
+*.log
+npm-debug.log*
+.DS_Store
+Dockerfile
+docker-compose.yml
+.dockerignore
+DOCKER.md

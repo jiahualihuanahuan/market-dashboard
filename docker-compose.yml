@@ -1,22 +1,55 @@
-services:
-  db:
-    image: postgres:16
-    environment:
-      POSTGRES_DB: market
-      POSTGRES_USER: market
-      POSTGRES_PASSWORD: market
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
+# Market Desk
+#
+#   docker compose up -d --build
+#
+# Open http://<this-machine>:8080 from another computer on the same network.
+# Change the published port with HOST_PORT (container always listens on 8080).
+#
+# The container restarts itself after a crash or a reboot (Docker must be set
+# to start on boot). Every day at CARE_AT in TZ it health-checks and refreshes
+# market data. Logs: `docker compose logs -f` and the market-desk-logs volume.
 
-  updater:
-    build: .
-    depends_on:
-      - db
+services:
+  market-desk:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: market-desk:latest
+    container_name: market-desk
+    restart: unless-stopped
+    ports:
+      - "${HOST_PORT:-8080}:8080"
     environment:
-      DATABASE_URL: postgresql://market:market@db:5432/market
-    command: python update_daily.py
+      PORT: "8080"
+      HOST: "0.0.0.0"
+      NITRO_HOST: "0.0.0.0"
+      TZ: ${TZ:-America/Toronto}
+      CARE_AT: ${CARE_AT:-06:30}
+      CARE_ON_START: ${CARE_ON_START:-1}
+      # Leave empty to generate a token on first start and store it in the data volume.
+      CARE_TOKEN: ${CARE_TOKEN:-}
+      DATABASE_URL: ${DATABASE_URL:-}
+    volumes:
+      - market-desk-data:/data
+      - market-desk-logs:/var/log/marketdesk
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:8080/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 8s
+      retries: 5
+      start_period: 40s
 
 volumes:
-  pgdata:
+  market-desk-data:
+  market-desk-logs:

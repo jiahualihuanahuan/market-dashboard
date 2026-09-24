@@ -1,22 +1,29 @@
 # Market Dashboard
 
-Personal web app for monitoring global markets, commodities, macro data, valuations, and smart-money signals.
+个人行情台。仓库里已经带好 Docker Compose，克隆下来一条命令就能跑，不用再自己写 compose 文件。
 
-## Stack
-- Frontend: React + TypeScript (or Next.js)
-- Backend: Python (FastAPI) + Postgres
-- Data: yfinance (daily), Polygon (optional later), SEC EDGAR (13F / Form 4)
-- Deploy: Docker Compose (Postgres volume + updater job)
+```bash
+git clone https://github.com/jiahualihuanahuan/market-dashboard.git
+cd market-dashboard
+docker compose up -d --build
+```
 
-## Core Tabs
-1. Market Overview (global indices, breadth, liquidity, fear & greed, commodities)
-2. US Treasury Yield Curve
-3. Commodity Chains (gold/silver/oil/uranium + equities + ETFs)
-4. Valuation Models (DCF, SOTP, relative valuation)
-5. Daily Opportunity Radar (personal buy zones)
-6. Panic Buy Rules (VIX + breadth triggers)
-7. Smart Money Radar (13F + insider trades)
-8. Sector Rotation (banks, REITs, utilities vs yield curve)
-9. Macro Calendar (US + Canada economic data)
+浏览器打开 `http://<这台机器的IP>:8080`。同一局域网里的手机、电脑都能访问。
 
-See `docs/PROJECT_REQUIREMENTS.md` for full spec.
+改对外端口（例如 80）：
+
+```bash
+HOST_PORT=80 docker compose up -d
+```
+
+常用：
+
+```bash
+docker compose ps
+docker compose logs -f
+docker compose down
+```
+
+容器挂了会自己拉起。每天 06:30（多伦多时间）自动检查并刷新行情。时区和端口见 `docker/env.example`，细节见 [DOCKER.md](DOCKER.md)。
+
+需求说明仍在 [docs/PROJECT_REQUIREMENTS.md](docs/PROJECT_REQUIREMENTS.md)。

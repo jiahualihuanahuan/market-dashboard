@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Market Desk">
+  <rect width="32" height="32" rx="7" fill="#0c0e11"/>
+  <rect x="5" y="25.25" width="22" height="1.5" rx="0.75" fill="#d7dde4"/>
+  <rect x="6.5" y="17" width="4.5" height="8.25" rx="1" fill="#d7dde4"/>
+  <rect x="13.75" y="12" width="4.5" height="13.25" rx="1" fill="#e7eaee"/>
+  <rect x="21" y="7.5" width="4.5" height="17.75" rx="1" fill="#d7dde4"/>
+  <rect x="6.5" y="15.25" width="4.5" height="1.75" rx="0.4" fill="#d06962"/>
+  <rect x="21" y="5.75" width="4.5" height="1.75" rx="0.4" fill="#3e9a70"/>
+</svg>
