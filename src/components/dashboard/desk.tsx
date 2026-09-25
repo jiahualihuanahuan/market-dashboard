@@ -14,7 +14,7 @@ import {
   ShieldAlert,
   Waypoints,
 } from "lucide-react";
-import { getBoard } from "@/lib/market/board.functions";
+import { getBoard, getFedWatch, getSmartMoney } from "@/lib/market/board.functions";
 import { useDesk } from "@/lib/market/settings";
 import { fmtBp, fmtPrice } from "@/lib/market/format";
 import { Button } from "@/components/ui/button";
@@ -73,10 +73,14 @@ export function Desk() {
       <header className="border-b border-line">
         <div className="flex flex-wrap items-end justify-between gap-4 px-4 py-4 md:px-6">
           <div>
-            <p className="font-mono text-xs text-muted">Through the close</p>
+            <p className="font-mono text-xs text-muted">{data?.live ? "Latest trade" : "Through the close"}</p>
             <h1 className="text-xl font-medium tracking-tight">Market Desk</h1>
             <p className="text-sm text-muted">
-              {data ? `Last completed session ${data.asOf}` : "Pulling closes"}
+              {data?.live
+                ? `As of ${new Date(data.fetchedAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/New_York", timeZoneName: "short" })}`
+                : data
+                  ? `Last completed session ${data.asOf}`
+                  : "Pulling closes"}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -88,8 +92,19 @@ export function Desk() {
               onClick={async () => {
                 setRefreshing(true);
                 try {
-                  const next = await getBoard({ data: { fresh: true } });
-                  client.setQueryData(["market-board"], next);
+                  if (search.tab === "smart") {
+                    const next = await getSmartMoney({ data: { fresh: true } });
+                    client.setQueryData(["smart-money"], next);
+                  } else if (search.tab === "lookthru") {
+                    window.dispatchEvent(new Event("desk-refresh"));
+                  } else if (search.tab !== "settings") {
+                    const next = await getBoard({ data: { fresh: true, live: true } });
+                    client.setQueryData(["market-board"], next);
+                    if (search.tab === "yields") {
+                      const fed = await getFedWatch({ data: { fresh: true } });
+                      client.setQueryData(["fedwatch"], fed);
+                    }
+                  }
                 } finally {
                   setRefreshing(false);
                 }
@@ -146,7 +161,9 @@ export function Desk() {
             ready ? <SettingsPanel /> : <p className="text-sm text-muted">Reading saved zones.</p>
           ) : null}
           <p className="mt-8 max-w-2xl text-xs text-muted">
-            Closes, not a live tape. No orders leave this page. Zones and thresholds stay on this device.
+            {data?.live
+              ? "Prices are the latest trade on the public feed, not the official close. No orders leave this page."
+              : "Closes, not a live tape. No orders leave this page. Zones and thresholds stay on this device."}
           </p>
         </main>
       </div>

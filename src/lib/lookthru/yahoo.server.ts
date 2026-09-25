@@ -95,9 +95,13 @@ function rawNumber(v: unknown): number | null {
   return null;
 }
 
+let forceQuotes = false;
+
 async function fetchQuote(symbol: string): Promise<Quote | null> {
-  const cached = quoteCache.get(symbol);
-  if (cached && Date.now() - cached.at < QUOTE_TTL_MS) return cached.value;
+  if (!forceQuotes) {
+    const cached = quoteCache.get(symbol);
+    if (cached && Date.now() - cached.at < QUOTE_TTL_MS) return cached.value;
+  }
   try {
     const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=1d`;
     const res = await yahooFetch(url);
@@ -367,7 +371,7 @@ function mergeInstrument(
   };
 }
 
-export async function analyzeTickers(tickers: string[]): Promise<{
+export async function analyzeTickers(tickers: string[], live = false): Promise<{
   instruments: Record<string, Instrument>;
   aliases: Record<string, string>;
   fxUsdCad: number;
@@ -376,7 +380,9 @@ export async function analyzeTickers(tickers: string[]): Promise<{
   const warnings: string[] = [];
   const aliases: Record<string, string> = {};
   const instruments: Record<string, Instrument> = {};
-
+  const previous = forceQuotes;
+  forceQuotes = live;
+  try {
   const usdCadQuote =
     (await fetchQuote("USDCAD=X")) ?? (await fetchQuote("CAD=X"));
   let fxUsdCad = usdCadQuote?.price && usdCadQuote.price > 0 ? usdCadQuote.price : 1.39;
@@ -487,4 +493,7 @@ export async function analyzeTickers(tickers: string[]): Promise<{
   }
 
   return { instruments, aliases, fxUsdCad, warnings: [...new Set(warnings)] };
+  } finally {
+    forceQuotes = previous;
+  }
 }

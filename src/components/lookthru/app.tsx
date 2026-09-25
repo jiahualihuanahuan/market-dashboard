@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { Toaster, toast } from "sonner";
 import { Header } from "@/components/lookthru/header";
 import { CompositionCharts } from "@/components/lookthru/charts";
@@ -43,12 +43,24 @@ export function LookthruApp() {
     [positions],
   );
 
+  const liveRef = useRef(false);
   const query = useQuery({
     queryKey: ["lookthru", tickers],
     enabled: hydrated && tickers.length > 0,
     staleTime: 5 * 60 * 1000,
-    queryFn: () => analyzeHoldings({ data: { tickers } }),
+    queryFn: () => analyzeHoldings({ data: { tickers, live: liveRef.current } }),
   });
+
+  useEffect(() => {
+    const onRefresh = () => {
+      liveRef.current = true;
+      void query.refetch().finally(() => {
+        liveRef.current = false;
+      });
+    };
+    window.addEventListener("desk-refresh", onRefresh);
+    return () => window.removeEventListener("desk-refresh", onRefresh);
+  }, [query]);
 
   useEffect(() => {
     if (query.error) toast.error("Could not load market data. Try again in a moment.");

@@ -98,6 +98,7 @@ export type CnnFear = {
 export type Board = {
   asOf: string;
   fetchedAt: string;
+  live: boolean;
   quotes: Quote[];
   breadth: Breadth;
   curves: Curve[];

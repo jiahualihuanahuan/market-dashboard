@@ -52,13 +52,13 @@ const MANAGERS = [
   { name: "Baupost", who: "Klarman", cik: "0001061768", token: "BAUPOST" },
 ];
 
-export async function loadBoard(fresh: boolean): Promise<Board> {
+export async function loadBoard(fresh: boolean, live = false): Promise<Board> {
   if (!fresh && boardCache && boardCache.data.ratios && boardCache.data.breadth.indexes?.length && "fearCnn" in boardCache.data && Date.now() - boardCache.at < 8 * 60 * 1000) {
     return boardCache.data;
   }
   const warnings: string[] = [];
   const [quoteRows, fred, fearCrypto, indexes, fearCnn] = await Promise.all([
-    mapPool(UNIVERSE, 12, (item) => loadQuote(item.symbol).catch(() => null)),
+    mapPool(UNIVERSE, 12, (item) => loadQuote(item.symbol, live).catch(() => null)),
     loadFred().catch((error: unknown) => {
       warnings.push(error instanceof Error ? error.message : "Yield feed failed");
       return null;
@@ -143,12 +143,15 @@ export async function loadBoard(fresh: boolean): Promise<Board> {
       : `S&P 500 ${fmtSigned(spx.d1)} vs SPY ${fmtSigned(spy.d1)}. Treat the index print as unverified.`;
   }
 
-  const asOf = spx?.spark.at(-1)?.d ?? raw[0]?.spark.at(-1)?.d ?? new Date().toISOString().slice(0, 10);
+  const asOf = live
+    ? etDate(Math.floor(Date.now() / 1000))
+    : spx?.spark.at(-1)?.d ?? raw[0]?.spark.at(-1)?.d ?? new Date().toISOString().slice(0, 10);
   const curves = fred?.curves ?? [];
   const months = fred?.months ?? [];
   const board: Board = {
     asOf,
     fetchedAt: new Date().toISOString(),
+    live,
     quotes,
     breadth,
     curves,
@@ -206,7 +209,7 @@ type RawQuote = {
   bars: Bar[];
 };
 
-async function loadQuote(symbol: string): Promise<RawQuote | null> {
+async function loadQuote(symbol: string, live = false): Promise<RawQuote | null> {
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=1y&includeAdjustedClose=true`;
   const json = await fetchJson(url, YAHOO_UA, 14000);
   const result = json?.chart?.result?.[0];
@@ -226,16 +229,33 @@ async function loadQuote(symbol: string): Promise<RawQuote | null> {
       v: typeof volume === "number" && Number.isFinite(volume) ? volume : null,
     });
   }
-  const done = completedBars(bars);
+  const meta = result.meta ?? {};
+  const livePrice = live ? numberOrNull(meta.regularMarketPrice) : null;
+  let done = live ? bars : completedBars(bars);
+  if (livePrice && livePrice > 0) {
+    const today = etDate(Math.floor(Date.now() / 1000));
+    const last = done[done.length - 1];
+    const volume = numberOrNull(meta.regularMarketVolume);
+    const bar = {
+      t: Math.floor(Date.now() / 1000),
+      c: livePrice,
+      v: volume ?? last?.v ?? null,
+    };
+    done = last && etDate(last.t) === today ? done.slice(0, -1).concat({ ...last, c: livePrice, v: bar.v }) : done.concat(bar);
+  }
   if (done.length < 2) return null;
   const last = done[done.length - 1];
-  const meta = result.meta ?? {};
   const vols = done.slice(-20).map((bar) => bar.v).filter((v): v is number => v != null && v > 0);
+  const change = live ? numberOrNull(meta.regularMarketChangePercent) : null;
+  const prior = numberOrNull(meta.previousClose);
+  const d1 = live
+    ? change ?? (prior && prior > 0 ? round((last.c / prior - 1) * 100) : horizonFromLast(done, 1))
+    : horizonFromLast(done, 1);
   return {
     symbol,
     name: String(meta.shortName || meta.longName || symbol),
     price: last.c,
-    d1: horizonFromLast(done, 1),
+    d1,
     w1: horizon(done, 7),
     m1: horizon(done, 30),
     y1: horizon(done, 365),
