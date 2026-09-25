@@ -68,6 +68,20 @@ export const getFrontier = createServerFn({ method: "GET" })
     return loadFrontier(data.live);
   });
 
+export const getOptions = createServerFn({ method: "GET" })
+  .validator((input: unknown) => {
+    const raw = typeof input === "object" && input && "symbol" in input ? String((input as { symbol?: string }).symbol ?? "") : "";
+    const live = typeof input === "object" && input !== null && "live" in input ? (input as { live?: boolean }).live === true : false;
+    const symbol = raw.trim().toUpperCase().replace(/^\$/, "").replace(/\s+/g, "");
+    const cleaned = /^[A-Z]{1,5}\.[A-Z]$/.test(symbol) ? symbol.replace(".", "-") : symbol;
+    if (!/^[A-Z^][A-Z0-9.\-]{0,14}$/.test(cleaned)) throw new Error("Enter a stock or ETF ticker.");
+    return { symbol: cleaned, live };
+  })
+  .handler(async ({ data }) => {
+    const { loadOptions } = await import("./options.server");
+    return loadOptions(data.symbol, data.live);
+  });
+
 export const getSmartMoney = createServerFn({ method: "GET" })
   .validator(freshFlag)
   .handler(async ({ data }) => {

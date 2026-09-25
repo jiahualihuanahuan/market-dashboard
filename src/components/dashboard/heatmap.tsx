@@ -40,7 +40,7 @@ export function HeatmapTab() {
   const boxRef = useRef<HTMLDivElement>(null);
   const liveRef = useRef(false);
   const query = useQuery({
-    queryKey: ["heatmap", index],
+    queryKey: ["heatmap", "v2", index],
     queryFn: () => getHeatmap({ data: { index, live: liveRef.current } }),
     staleTime: 8 * 60 * 1000,
   });
@@ -80,13 +80,14 @@ export function HeatmapTab() {
     [cells, zoom, width, height],
   );
   const active = bySymbol.get(picked ?? hover ?? "") ?? null;
+  const pricedCaps = cells.filter((cell) => cell.cap > 0).length;
   const sectors = useMemo(() => sectorRollup(cells, horizon), [cells, horizon]);
 
   return (
     <div className="grid gap-4">
       <Panel
         title={query.data?.label ?? "Index members"}
-        kicker="Grouped by industry. Bigger tile, bigger company."
+        kicker="Grouped by sector. Bigger tile, bigger company."
         action={
           <div className="flex gap-2 overflow-x-auto">
             {WINDOWS.map((item) => (
@@ -121,8 +122,11 @@ export function HeatmapTab() {
           ))}
         </div>
         <p className="mb-3 text-sm text-muted">
-          Each block is an industry. Inside it, every stock is a tile whose area is that company's market value, the price times shares outstanding. Green is up, red is down, and a darker tile is a bigger move. Hover or click a tile for the name. Click an industry to open only that group.
+          Each block is a sector: companies in the same line of business, such as banks or energy. Inside a block, tile area is market value, the share price times the number of shares. A company worth twice as much gets twice the space. Green is up, red is down, and a darker tile is a bigger move. Hover or click a tile for the name. Click a sector to open only that group.
           {query.data ? ` ${query.data.cells.length} of ${query.data.listed} names came back with a price.` : ""}
+          {cells.length && pricedCaps < cells.length
+            ? ` ${cells.length - pricedCaps} ${cells.length - pricedCaps === 1 ? "name has" : "names have"} no market value yet, so those tiles are drawn small instead of at a real size.`
+            : ""}
         </p>
         <div className="mb-3 flex gap-2 overflow-x-auto">
           <button
@@ -133,7 +137,7 @@ export function HeatmapTab() {
               zoom == null ? "border-fg text-fg" : "border-line text-muted",
             )}
           >
-            All industries
+            All sectors
           </button>
           {sectors.map((item) => (
             <button
@@ -150,7 +154,7 @@ export function HeatmapTab() {
             </button>
           ))}
         </div>
-        {query.isPending ? <p className="text-sm text-muted">Reading every member, then sorting them by industry and company size.</p> : null}
+        {query.isPending ? <p className="text-sm text-muted">Reading every member, then sorting them by sector and company size.</p> : null}
         {query.isError ? (
           <p className="text-sm text-muted">{query.error instanceof Error ? query.error.message : "The index list did not load."}</p>
         ) : null}
@@ -231,7 +235,8 @@ function StockCard({ cell, horizon }: { cell: HeatCell; horizon: WindowId }) {
       <div>
         <p className="font-medium">{cell.name}</p>
         <p className="text-sm text-muted">
-          {cell.symbol} · {cell.sector}{cell.industry ? ` · ${cell.industry}` : ""}
+          {cell.symbol} · {cell.sector}
+          {cell.industry && cell.industry.toLowerCase() !== cell.sector.toLowerCase() ? ` · ${cell.industry}` : ""}
         </p>
       </div>
       <div className="flex gap-4 font-mono text-sm tabular-nums">
@@ -324,6 +329,6 @@ function fmtCap(value: number, currency: string): string {
   const abs = Math.abs(value);
   const digits = abs >= 1e12 ? 2 : 1;
   const body = abs >= 1e12 ? `${(value / 1e12).toFixed(digits)}T` : abs >= 1e9 ? `${(value / 1e9).toFixed(digits)}B` : `${(value / 1e6).toFixed(0)}M`;
-  const mark = currency === "USD" || currency === "" ? "$" : currency === "EUR" ? "€" : currency === "GBP" ? "£" : currency === "JPY" ? "¥" : currency === "CAD" ? "C$" : currency === "AUD" ? "A$" : `${currency} `;
+  const mark = currency === "USD" || currency === "" ? "$" : currency === "EUR" ? "€" : currency === "GBP" || currency === "GBp" ? "£" : currency === "JPY" ? "¥" : currency === "CAD" ? "C$" : currency === "AUD" ? "A$" : currency === "CHF" ? "CHF " : `${currency} `;
   return `${mark}${body}`;
 }

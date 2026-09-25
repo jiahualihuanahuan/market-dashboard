@@ -97,12 +97,13 @@ async function loadFtse(): Promise<string[]> {
 }
 
 async function loadNikkei(): Promise<string[]> {
-  const html = await wiki("Nikkei 225");
-  const section = html.split(/id="Components"/)[1]?.split("<h2")[0] ?? html;
-  const fromLinks = [...section.matchAll(/topSearchStr=(\d{4})/g)].map((match) => match[1]);
-  const fromAnchors = [...section.matchAll(/>(\d{4})<\/a>/g)].map((match) => match[1]);
-  const codes = unique([...fromLinks, ...fromAnchors]).filter((code) => Number(code) >= 1300 && Number(code) <= 9999);
-  return codes.map((code) => `${code}.T`);
+  const json = await getJson(
+    "https://en.wikipedia.org/w/api.php?action=parse&page=Nikkei%20225&prop=wikitext&format=json",
+  );
+  const text = String(json?.parse?.wikitext?.["*"] ?? "");
+  const codes = unique([...text.matchAll(/\{\{tyo2\|([^}]+)\}\}/g)].map((match) => match[1].trim().toUpperCase()));
+  const symbols = codes.filter((code) => /^[0-9]{3}[0-9A-Z]$/.test(code));
+  return symbols.map((code) => `${code}.T`);
 }
 
 async function loadTsx(): Promise<string[]> {
@@ -127,7 +128,7 @@ async function loadAsx(): Promise<string[]> {
     "https://en.wikipedia.org/w/api.php?action=parse&page=S%26P%2FASX%20200&prop=wikitext&format=json",
   );
   const text = String(json?.parse?.wikitext?.["*"] ?? "");
-  const codes = [...text.matchAll(/\|\s*([A-Z]{3})\s*\|/g)].map((match) => match[1]);
+  const codes = [...text.matchAll(/\|\s*([A-Z0-9]{3})\s*\|/g)].map((match) => match[1]);
   const symbols = unique(codes).filter((code) => code !== "ASX" && code !== "XJO");
   return symbols.length >= 150 ? symbols.map((code) => `${code}.AX`) : [];
 }

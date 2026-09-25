@@ -14,6 +14,7 @@ import {
   Scale,
   Settings,
   ShieldAlert,
+  Sigma,
   Spline,
   Waypoints,
 } from "lucide-react";
@@ -29,6 +30,7 @@ import { Commodities } from "@/components/dashboard/commodities";
 import { HeatmapTab } from "@/components/dashboard/heatmap";
 import { FrontierTab } from "@/components/dashboard/frontier";
 import { FlowsTab } from "@/components/dashboard/flows";
+import { OptionsTab } from "@/components/dashboard/options";
 import { Valuation } from "@/components/dashboard/valuation";
 import { Radar } from "@/components/dashboard/radar";
 import { Panic } from "@/components/dashboard/panic";
@@ -42,9 +44,10 @@ const NAV: { id: TabId; label: string; icon: typeof LayoutDashboard }[] = [
   { id: "overview", label: "Overview", icon: LayoutDashboard },
   { id: "yields", label: "Yield curve", icon: LineChart },
   { id: "commodities", label: "Commodities", icon: Layers },
-  { id: "heatmap", label: "Heat map", icon: LayoutGrid },
+  { id: "heatmap", label: "Heatmap", icon: LayoutGrid },
   { id: "frontier", label: "Frontier", icon: Spline },
   { id: "flows", label: "Flows", icon: ArrowLeftRight },
+  { id: "options", label: "Options", icon: Sigma },
   { id: "valuation", label: "Valuation", icon: Scale },
   { id: "radar", label: "Opportunity", icon: Crosshair },
   { id: "panic", label: "Panic rules", icon: ShieldAlert },
@@ -72,7 +75,7 @@ export function Desk() {
     setReady(true);
   }, []);
 
-  const needsBoard = search.tab !== "lookthru" && search.tab !== "smart" && search.tab !== "settings" && search.tab !== "heatmap" && search.tab !== "frontier" && search.tab !== "flows";
+  const needsBoard = search.tab !== "lookthru" && search.tab !== "smart" && search.tab !== "settings" && search.tab !== "heatmap" && search.tab !== "frontier" && search.tab !== "flows" && search.tab !== "options";
   const data = board.data;
   const vix = data?.quotes.find((quote) => quote.symbol === "^VIX");
   const active = NAV.find((item) => item.id === search.tab) ?? NAV[0];
@@ -104,7 +107,7 @@ export function Desk() {
                   if (search.tab === "smart") {
                     const next = await getSmartMoney({ data: { fresh: true } });
                     client.setQueryData(["smart-money"], next);
-                  } else if (search.tab === "lookthru" || search.tab === "heatmap" || search.tab === "frontier" || search.tab === "flows") {
+                  } else if (search.tab === "lookthru" || search.tab === "heatmap" || search.tab === "frontier" || search.tab === "flows" || search.tab === "options") {
                     window.dispatchEvent(new Event("desk-refresh"));
                   } else if (search.tab !== "settings") {
                     const next = await getBoard({ data: { fresh: true, live: true } });
@@ -162,6 +165,7 @@ export function Desk() {
           {search.tab === "heatmap" ? <HeatmapTab /> : null}
           {search.tab === "frontier" ? <FrontierTab /> : null}
           {search.tab === "flows" ? <FlowsTab /> : null}
+          {search.tab === "options" ? <OptionsTab /> : null}
           {data && search.tab === "valuation" ? <Valuation board={data} /> : null}
           {data && search.tab === "radar" ? <Radar board={data} ready={ready} /> : null}
           {data && search.tab === "panic" ? <Panic board={data} /> : null}
