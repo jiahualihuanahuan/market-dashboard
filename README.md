@@ -26,4 +26,6 @@ docker compose down
 
 容器挂了会自己拉起。每天 06:30（多伦多时间）自动检查并刷新行情。时区和端口见 `docker/env.example`，细节见 [DOCKER.md](DOCKER.md)。
 
+侧栏里的 **Lookthru** 把 ETF 拆成底层股票（和单独的 [Lookthru](https://github.com/jiahualihuanahuan/Lookthru) 同一套穿透）。持仓记在这台浏览器里。
+
 需求说明仍在 [docs/PROJECT_REQUIREMENTS.md](docs/PROJECT_REQUIREMENTS.md)。

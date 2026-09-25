@@ -12,6 +12,7 @@ import {
   Scale,
   Settings,
   ShieldAlert,
+  Waypoints,
 } from "lucide-react";
 import { getBoard } from "@/lib/market/board.functions";
 import { useDesk } from "@/lib/market/settings";
@@ -29,6 +30,7 @@ import { Smart } from "@/components/dashboard/smart";
 import { Sectors } from "@/components/dashboard/sectors";
 import { Macro } from "@/components/dashboard/macro";
 import { SettingsPanel } from "@/components/dashboard/settings-panel";
+import { LookthruApp } from "@/components/lookthru/app";
 
 const NAV: { id: TabId; label: string; icon: typeof LayoutDashboard }[] = [
   { id: "overview", label: "Overview", icon: LayoutDashboard },
@@ -40,6 +42,7 @@ const NAV: { id: TabId; label: string; icon: typeof LayoutDashboard }[] = [
   { id: "smart", label: "Smart money", icon: Landmark },
   { id: "sectors", label: "Sectors", icon: PieChart },
   { id: "macro", label: "Macro", icon: CalendarDays },
+  { id: "lookthru", label: "Lookthru", icon: Waypoints },
   { id: "settings", label: "Settings", icon: Settings },
 ];
 
@@ -60,6 +63,7 @@ export function Desk() {
     setReady(true);
   }, []);
 
+  const needsBoard = search.tab !== "lookthru" && search.tab !== "smart" && search.tab !== "settings";
   const data = board.data;
   const vix = data?.quotes.find((quote) => quote.symbol === "^VIX");
   const active = NAV.find((item) => item.id === search.tab) ?? NAV[0];
@@ -119,10 +123,10 @@ export function Desk() {
         </nav>
         <main className="min-w-0 px-4 py-4 md:px-6 md:py-6">
           <h2 className="mb-4 text-lg font-medium tracking-tight">{active.label}</h2>
-          {board.isPending ? (
+          {needsBoard && board.isPending ? (
             <p className="text-sm text-muted">Pulling closes from the price and rates feeds.</p>
           ) : null}
-          {board.isError ? (
+          {needsBoard && board.isError ? (
             <div className="rounded-xl border border-line bg-surface p-4">
               <p className="font-medium">The feeds did not answer</p>
               <p className="mt-1 text-sm text-muted">{board.error instanceof Error ? board.error.message : "Try refresh."}</p>
@@ -137,6 +141,7 @@ export function Desk() {
           {search.tab === "smart" ? <Smart /> : null}
           {data && search.tab === "sectors" ? <Sectors board={data} /> : null}
           {data && search.tab === "macro" ? <Macro board={data} /> : null}
+          {search.tab === "lookthru" ? <LookthruApp /> : null}
           {search.tab === "settings" ? (
             ready ? <SettingsPanel /> : <p className="text-sm text-muted">Reading saved zones.</p>
           ) : null}

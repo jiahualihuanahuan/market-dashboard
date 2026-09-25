@@ -8,6 +8,7 @@ export const TABS = [
   "smart",
   "sectors",
   "macro",
+  "lookthru",
   "settings",
 ] as const;
 
