@@ -5,6 +5,7 @@ import type {
   Board,
   ChainRatio,
   Curve,
+  IndexBreadth,
   InsiderFiling,
   MacroPrint,
   ManagerBook,
@@ -51,15 +52,18 @@ const MANAGERS = [
 ];
 
 export async function loadBoard(fresh: boolean): Promise<Board> {
-  if (!fresh && boardCache && boardCache.data.ratios && Date.now() - boardCache.at < 8 * 60 * 1000) return boardCache.data;
+  if (!fresh && boardCache && boardCache.data.ratios && boardCache.data.breadth.indexes?.length && Date.now() - boardCache.at < 8 * 60 * 1000) {
+    return boardCache.data;
+  }
   const warnings: string[] = [];
-  const [quoteRows, fred, fearCrypto] = await Promise.all([
+  const [quoteRows, fred, fearCrypto, indexes] = await Promise.all([
     mapPool(UNIVERSE, 12, (item) => loadQuote(item.symbol).catch(() => null)),
     loadFred().catch((error: unknown) => {
       warnings.push(error instanceof Error ? error.message : "Yield feed failed");
       return null;
     }),
     loadFear().catch(() => null),
+    import("./breadth.server").then((mod) => mod.loadIndexBreadth()).catch(() => [] as IndexBreadth[]),
   ]);
 
   const raw = quoteRows.filter((row): row is RawQuote => row != null);
@@ -103,12 +107,26 @@ export async function loadBoard(fresh: boolean): Promise<Board> {
     if (quote.low52 && quote.price <= quote.low52 * 1.01) nearLow += 1;
   }
 
+  const spxBreadth = indexes.find((row) => row.symbol === "^GSPC" && row.covered >= 400);
+  const breadth: Board["breadth"] = spxBreadth
+    ? {
+        up: spxBreadth.up,
+        down: spxBreadth.down,
+        flat: spxBreadth.flat,
+        nearHigh: 0,
+        nearLow: 0,
+        universe: spxBreadth.covered,
+        source: "spx",
+        indexes,
+      }
+    : { up, down, flat, nearHigh, nearLow, universe: equities.length, source: "sample", indexes };
+
   const spx = quotes.find((quote) => quote.symbol === "^GSPC");
   const vix = quotes.find((quote) => quote.symbol === "^VIX");
   const spy = quotes.find((quote) => quote.symbol === "SPY");
   let fearEquity: Board["fearEquity"] = null;
-  if (vix && spx && equities.length) {
-    const adv = (up / equities.length) * 100;
+  if (vix && spx && breadth.universe) {
+    const adv = (breadth.up / breadth.universe) * 100;
     const dist = spx.high52 ? spx.price / spx.high52 - 1 : 0;
     const value = equityGauge(vix.price, adv, dist);
     fearEquity = { value, label: fearLabel(value) };
@@ -130,7 +148,7 @@ export async function loadBoard(fresh: boolean): Promise<Board> {
     asOf,
     fetchedAt: new Date().toISOString(),
     quotes,
-    breadth: { up, down, flat, nearHigh, nearLow, universe: equities.length },
+    breadth,
     curves,
     months,
     spreadPath: fred?.spreadPath ?? [],

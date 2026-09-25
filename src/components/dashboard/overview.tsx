@@ -10,9 +10,6 @@ export function Overview({ board }: { board: Board }) {
   const by = new Map(board.quotes.map((quote) => [quote.symbol, quote]));
   const indices = board.quotes.filter((quote) => UNIVERSE_BY_SYMBOL.get(quote.symbol)?.group === "index");
   const commodities = ["GC=F", "SI=F", "CL=F", "BZ=F", "HG=F", "NG=F", "DX-Y.NYB"].map((symbol) => by.get(symbol)).filter((q): q is Quote => !!q);
-  const adv = board.breadth.universe ? Math.round((board.breadth.up / board.breadth.universe) * 100) : 0;
-  const dec = board.breadth.universe ? Math.round((board.breadth.down / board.breadth.universe) * 100) : 0;
-  const flat = Math.max(0, 100 - adv - dec);
   const chart = mergeCharts(CHARTS.map((symbol) => by.get(symbol)).filter((q): q is Quote => !!q));
   const spy = by.get("SPY");
 
@@ -26,7 +23,7 @@ export function Overview({ board }: { board: Board }) {
             <Empty title="Gauge needs VIX and the S&P" body="Those closes did not arrive." />
           )}
           <p className="mt-3 text-sm text-muted">
-            Blend of VIX, share of the tracked book that rose, and how far the S&P sits from its 52-week high.
+            Blend of VIX, share of the {board.breadth.source === "spx" ? "S&P 500" : "tracked book"} that rose, and how far the S&P sits from its 52-week high.
           </p>
         </Panel>
         <Panel title="Crypto fear and greed" kicker="Alternative.me">
@@ -36,20 +33,39 @@ export function Overview({ board }: { board: Board }) {
             <Empty title="Crypto index is quiet" body="The public fear-and-greed feed did not answer." />
           )}
         </Panel>
-        <Panel title="Breadth" kicker="Tracked names, not the NYSE tape">
-          <div className="flex h-3 overflow-hidden rounded-full bg-elevated">
-            <div className="bg-up" style={{ width: `${adv}%` }} />
-            <div className="bg-line" style={{ width: `${flat}%` }} />
-            <div className="bg-down" style={{ width: `${dec}%` }} />
+        <Panel title="Breadth" kicker={board.breadth.source === "spx" ? "Full index membership" : "Hand-picked book, index lists failed"} className="lg:col-span-3">
+          <div className="grid gap-3">
+            {(board.breadth.indexes ?? []).map((row) => {
+              const total = row.covered || row.listed;
+              const upPct = total ? Math.round((row.up / total) * 100) : 0;
+              const downPct = total ? Math.round((row.down / total) * 100) : 0;
+              const flatPct = Math.max(0, 100 - upPct - downPct);
+              return (
+                <div key={row.symbol}>
+                  <div className="mb-1 flex items-baseline justify-between gap-3 text-sm">
+                    <span>{row.label}</span>
+                    {row.covered ? (
+                      <span className="font-mono text-xs text-muted">
+                        {row.up} up · {row.down} down · {row.flat} flat · {row.covered} of {row.listed}
+                      </span>
+                    ) : (
+                      <span className="text-xs text-muted">No public membership list</span>
+                    )}
+                  </div>
+                  {row.covered ? (
+                    <div className="flex h-2 overflow-hidden rounded-full bg-elevated">
+                      <div className="bg-up" style={{ width: `${upPct}%` }} />
+                      <div className="bg-line" style={{ width: `${flatPct}%` }} />
+                      <div className="bg-down" style={{ width: `${downPct}%` }} />
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })}
           </div>
-          <dl className="mt-4 grid grid-cols-3 gap-3 font-mono text-sm">
-            <Stat label="Up" value={String(board.breadth.up)} />
-            <Stat label="Down" value={String(board.breadth.down)} />
-            <Stat label="Flat" value={String(board.breadth.flat)} />
-            <Stat label="Near high" value={String(board.breadth.nearHigh)} />
-            <Stat label="Near low" value={String(board.breadth.nearLow)} />
-            <Stat label="Names" value={String(board.breadth.universe)} />
-          </dl>
+          <p className="mt-3 text-xs text-muted">
+            The old “68 names” figure was not an index. It was every equity typed into this desk by hand: miners, banks, and a few stocks per sector. These bars count the actual members of the indexes on this page. Flat means a move under 0.05%.
+          </p>
         </Panel>
       </div>
 

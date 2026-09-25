@@ -14,8 +14,10 @@ export function panicCall(input: {
   fullVix: number;
   partialPct: number;
   breadthPanic: number;
+  book?: string;
 }): { level: PanicLevel; title: string; detail: string } {
   const { vix, declinersPct, partialVix, fullVix, partialPct, breadthPanic } = input;
+  const book = input.book ?? "tracked book";
   if (vix == null) {
     return {
       level: "unknown",
@@ -27,7 +29,7 @@ export function panicCall(input: {
   const breadthText =
     declinersPct == null
       ? "Breadth is missing."
-      : `${declinersPct.toFixed(0)}% of the tracked book closed down. The systemic bar is ${breadthPanic}%.`;
+      : `${declinersPct.toFixed(0)}% of the ${book} closed down. The systemic bar is ${breadthPanic}%.`;
 
   if (vix >= fullVix && confirmed) {
     return {

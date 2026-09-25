@@ -12,8 +12,9 @@ export function Panic({ board }: { board: Board }) {
   const breadthPanic = useDesk((s) => s.breadthPanic);
   const setPanic = useDesk((s) => s.setPanic);
   const vix = board.quotes.find((quote) => quote.symbol === "^VIX")?.price ?? null;
+  const book = board.breadth.source === "spx" ? "S&P 500" : "tracked book";
   const decliners = board.breadth.universe ? (board.breadth.down / board.breadth.universe) * 100 : null;
-  const call = panicCall({ vix, declinersPct: decliners, partialVix, fullVix, partialPct, breadthPanic });
+  const call = panicCall({ vix, declinersPct: decliners, partialVix, fullVix, partialPct, breadthPanic, book });
 
   return (
     <div className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
@@ -29,7 +30,7 @@ export function Panic({ board }: { board: Board }) {
         <ul className="mt-6 grid gap-2 text-sm text-muted">
           <li>Two years of living expenses stay in Treasuries. This screen never touches that pile.</li>
           <li>Idle cash deploys in two steps: {partialPct}% when VIX clears {partialVix}, the rest when it clears {fullVix}.</li>
-          <li>Both steps also need at least {breadthPanic}% of the tracked book down on the day. A volatility spike without a broad flush is not the trade.</li>
+          <li>Both steps also need at least {breadthPanic}% of the {book} down on the day. A volatility spike without a broad flush is not the trade.</li>
           <li>Cash has an opportunity cost. The point of the rule is to spend it when prices already discount a scare, not to admire a high VIX.</li>
         </ul>
       </Panel>

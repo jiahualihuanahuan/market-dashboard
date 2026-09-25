@@ -20,6 +20,16 @@ export type Quote = {
   divergence: number | null;
 };
 
+export type IndexBreadth = {
+  symbol: string;
+  label: string;
+  up: number;
+  down: number;
+  flat: number;
+  covered: number;
+  listed: number;
+};
+
 export type Breadth = {
   up: number;
   down: number;
@@ -27,6 +37,9 @@ export type Breadth = {
   nearHigh: number;
   nearLow: number;
   universe: number;
+  /** spx means up/down are the S&P 500. sample is the hand-picked book, used only if the index feed fails. */
+  source: "spx" | "sample";
+  indexes: IndexBreadth[];
 };
 
 export type MacroPrint = {
