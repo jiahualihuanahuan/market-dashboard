@@ -44,6 +44,18 @@ export const getHeatmap = createServerFn({ method: "GET" })
     return loadHeatmap(data.index, data.live);
   });
 
+export const getFlows = createServerFn({ method: "GET" })
+  .validator((input: unknown) => {
+    const live = typeof input === "object" && input !== null && "live" in input
+      ? (input as { live?: boolean }).live === true
+      : false;
+    return { live };
+  })
+  .handler(async ({ data }) => {
+    const { loadFlows } = await import("./flows.server");
+    return loadFlows(data.live);
+  });
+
 export const getFrontier = createServerFn({ method: "GET" })
   .validator((input: unknown) => {
     const live = typeof input === "object" && input !== null && "live" in input
