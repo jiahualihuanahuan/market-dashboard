@@ -82,6 +82,18 @@ export const getOptions = createServerFn({ method: "GET" })
     return loadOptions(data.symbol, data.live);
   });
 
+export const getDark = createServerFn({ method: "GET" })
+  .validator((input: unknown) => {
+    const live = typeof input === "object" && input !== null && "live" in input
+      ? (input as { live?: boolean }).live === true
+      : false;
+    return { live };
+  })
+  .handler(async ({ data }) => {
+    const { loadDark } = await import("./dark.server");
+    return loadDark(data.live);
+  });
+
 export const getSmartMoney = createServerFn({ method: "GET" })
   .validator(freshFlag)
   .handler(async ({ data }) => {

@@ -5,6 +5,7 @@ import {
   ArrowLeftRight,
   CalendarDays,
   Crosshair,
+  EyeOff,
   Landmark,
   Layers,
   LayoutDashboard,
@@ -31,6 +32,7 @@ import { HeatmapTab } from "@/components/dashboard/heatmap";
 import { FrontierTab } from "@/components/dashboard/frontier";
 import { FlowsTab } from "@/components/dashboard/flows";
 import { OptionsTab } from "@/components/dashboard/options";
+import { DarkTab } from "@/components/dashboard/dark";
 import { Valuation } from "@/components/dashboard/valuation";
 import { Radar } from "@/components/dashboard/radar";
 import { Panic } from "@/components/dashboard/panic";
@@ -48,6 +50,7 @@ const NAV: { id: TabId; label: string; icon: typeof LayoutDashboard }[] = [
   { id: "frontier", label: "Frontier", icon: Spline },
   { id: "flows", label: "Flows", icon: ArrowLeftRight },
   { id: "options", label: "Options", icon: Sigma },
+  { id: "dark", label: "Dark pool", icon: EyeOff },
   { id: "valuation", label: "Valuation", icon: Scale },
   { id: "radar", label: "Opportunity", icon: Crosshair },
   { id: "panic", label: "Panic rules", icon: ShieldAlert },
@@ -75,7 +78,7 @@ export function Desk() {
     setReady(true);
   }, []);
 
-  const needsBoard = search.tab !== "lookthru" && search.tab !== "smart" && search.tab !== "settings" && search.tab !== "heatmap" && search.tab !== "frontier" && search.tab !== "flows" && search.tab !== "options";
+  const needsBoard = search.tab !== "lookthru" && search.tab !== "smart" && search.tab !== "settings" && search.tab !== "heatmap" && search.tab !== "frontier" && search.tab !== "flows" && search.tab !== "options" && search.tab !== "dark";
   const data = board.data;
   const vix = data?.quotes.find((quote) => quote.symbol === "^VIX");
   const active = NAV.find((item) => item.id === search.tab) ?? NAV[0];
@@ -107,7 +110,7 @@ export function Desk() {
                   if (search.tab === "smart") {
                     const next = await getSmartMoney({ data: { fresh: true } });
                     client.setQueryData(["smart-money"], next);
-                  } else if (search.tab === "lookthru" || search.tab === "heatmap" || search.tab === "frontier" || search.tab === "flows" || search.tab === "options") {
+                  } else if (search.tab === "lookthru" || search.tab === "heatmap" || search.tab === "frontier" || search.tab === "flows" || search.tab === "options" || search.tab === "dark") {
                     window.dispatchEvent(new Event("desk-refresh"));
                   } else if (search.tab !== "settings") {
                     const next = await getBoard({ data: { fresh: true, live: true } });
@@ -166,6 +169,7 @@ export function Desk() {
           {search.tab === "frontier" ? <FrontierTab /> : null}
           {search.tab === "flows" ? <FlowsTab /> : null}
           {search.tab === "options" ? <OptionsTab /> : null}
+          {search.tab === "dark" ? <DarkTab /> : null}
           {data && search.tab === "valuation" ? <Valuation board={data} /> : null}
           {data && search.tab === "radar" ? <Radar board={data} ready={ready} /> : null}
           {data && search.tab === "panic" ? <Panic board={data} /> : null}
