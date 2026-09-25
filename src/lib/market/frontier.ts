@@ -1,9 +1,21 @@
+export type FrontierAnchor = {
+  /** Forward-looking expected return, percent a year. Not the historical average. */
+  forward: number;
+  marketCap: number;
+  /** 1 trusts the view as much as the equilibrium. Higher means the view is vague. */
+  confidence: number;
+  note: string;
+};
+
 export type FrontierSeries = {
   start: string;
   end: string;
   assets: { symbol: string; label: string }[];
   dates: string[];
   returns: number[][];
+  anchors: FrontierAnchor[];
+  inflation: number;
+  billYield: number;
 };
 
 export type MixPoint = {
@@ -16,59 +28,104 @@ export type MixPoint = {
   weights: number[];
 };
 
+export type ReturnBridge = {
+  label: string;
+  historical: number;
+  forward: number;
+  marketWeight: number;
+  equilibrium: number;
+  posterior: number;
+  note: string;
+};
+
 export type FrontierModel = {
   start: string;
   end: string;
   days: number;
   rf: number;
+  inflation: number;
+  weightCap: number;
   assets: MixPoint[];
   labels: string[];
   corr: number[][];
+  bridges: ReturnBridge[];
   frontier: MixPoint[];
   maxSharpe: MixPoint;
   calmest: MixPoint;
 };
 
 const YEAR = 252;
+/** Five holdings cannot all stay at or under 15% and still sum to 100%. 20% is the mathematical floor. */
+export const WEIGHT_CAP = 0.25;
+const TAU = 0.05;
+const RISK_AVERSION = 2.5;
+const VOL_SHRINK = 0.35;
+const CORR_SHRINK = 0.3;
 
 export function buildFrontier(series: FrontierSeries): FrontierModel {
   const days = series.dates.length;
   const n = series.assets.length;
-  const mean = series.returns.map((row) => avg(row));
-  const cov = covariance(series.returns);
-  const mu = mean.map((value) => value * YEAR * 100);
-  const sigma = cov.map((row) => row.map((value) => value * YEAR * 10000));
-  const rf = mu[n - 1] ?? 0;
-  const assets = series.returns.map((_, index) => score(oneHot(n, index), mu, sigma, rf, series.returns));
-  const cloud = simplexGrid(n, 0.02).map((weights) => ({
+  const historical = series.returns.map((row) => avg(row) * YEAR * 100);
+  const sample = covariance(series.returns).map((row) => row.map((value) => value * YEAR));
+  const shrunk = shrinkCovariance(sample);
+  const caps = series.anchors.map((anchor) => Math.max(anchor.marketCap, 0));
+  const capTotal = caps.reduce((sum, value) => sum + value, 0);
+  if (!(capTotal > 0)) throw new Error("Market weights could not be built.");
+  const market = caps.map((value) => value / capTotal);
+  const sigma = shrunk.map((row, index) => row.map((value, column) => (index === column ? value + 1e-8 : value)));
+  const rf = series.billYield / 100;
+  const equilibrium = multiply(sigma, market).map((value) => (RISK_AVERSION * value + rf) * 100);
+  const posterior = blackLitterman(
+    sigma,
+    equilibrium.map((value) => value / 100),
+    series.anchors.map((anchor) => anchor.forward / 100),
+    series.anchors.map((anchor) => anchor.confidence),
+    rf,
+  );
+  const mu = posterior.map((value) => value * 100);
+  const percentCov = sigma.map((row) => row.map((value) => value * 10000));
+  const assets = series.returns.map((_, index) => score(oneHot(n, index), mu, percentCov, series.billYield, series.returns));
+  const cloud = cappedGrid(n, 0.02, WEIGHT_CAP).map((weights) => ({
     weights,
     ret: dot(weights, mu),
-    vol: Math.sqrt(Math.max(dot(weights, multiply(sigma, weights)), 0)),
+    vol: Math.sqrt(Math.max(dot(weights, multiply(percentCov, weights)), 0)),
   }));
   cloud.sort((a, b) => a.vol - b.vol || b.ret - a.ret);
   const chosen: typeof cloud = [];
   let bestReturn = -Infinity;
   for (const row of cloud) {
-    if (row.ret > bestReturn + 0.04) {
+    if (row.ret > bestReturn + 0.03) {
       chosen.push(row);
       bestReturn = row.ret;
     }
   }
-  const frontier = thin(chosen, 36).map((row) => score(row.weights, mu, sigma, rf, series.returns));
+  const frontier = thin(chosen, 36).map((row) => score(row.weights, mu, percentCov, series.billYield, series.returns));
   const tangency = cloud.reduce((best, row) => {
-    const sharpe = row.vol > 0.2 ? (row.ret - rf) / row.vol : -Infinity;
+    const sharpe = row.vol > 0.2 ? (row.ret - series.billYield) / row.vol : -Infinity;
     return sharpe > best.sharpe ? { sharpe, weights: row.weights } : best;
-  }, { sharpe: -Infinity, weights: oneHot(n, n - 1) });
+  }, { sharpe: -Infinity, weights: market.map((value) => Math.min(value, WEIGHT_CAP)) });
+  const bridges = series.assets.map((asset, index) => ({
+    label: asset.label,
+    historical: round(historical[index] ?? 0),
+    forward: round(series.anchors[index]?.forward ?? 0),
+    marketWeight: round((market[index] ?? 0) * 100, 1),
+    equilibrium: round(equilibrium[index] ?? 0),
+    posterior: round(mu[index] ?? 0),
+    note: series.anchors[index]?.note ?? "",
+  }));
   return {
     start: series.start,
     end: series.end,
     days,
-    rf: round(rf),
+    rf: round(series.billYield),
+    inflation: round(series.inflation),
+    weightCap: WEIGHT_CAP * 100,
     assets,
     labels: series.assets.map((asset) => asset.label),
-    corr: correlation(series.returns),
+    corr: correlationFrom(sigma),
+    bridges,
     frontier,
-    maxSharpe: score(tangency.weights, mu, sigma, rf, series.returns),
+    maxSharpe: score(tangency.weights, mu, percentCov, series.billYield, series.returns),
     calmest: frontier[0] ?? assets[n - 1],
   };
 }
@@ -79,6 +136,39 @@ export function mixWithinVol(model: FrontierModel, maxVol: number): MixPoint {
     if (point.vol <= maxVol + 0.05 && point.ret >= best.ret) best = point;
   }
   return best;
+}
+
+function blackLitterman(sigma: number[][], equilibrium: number[], views: number[], confidence: number[], rf: number): number[] {
+  const tauSigma = sigma.map((row) => row.map((value) => value * TAU));
+  const priorPrecision = invert(tauSigma);
+  const viewPrecision = sigma.map((row, index) => row.map((_, column) => (index === column ? 1 / Math.max(confidence[index] * TAU * sigma[index][index], 1e-10) : 0)));
+  const left = add(priorPrecision, viewPrecision);
+  const right = addVectors(
+    multiply(priorPrecision, equilibrium.map((value) => value - rf)),
+    multiply(viewPrecision, views.map((value) => value - rf)),
+  );
+  return multiply(invert(left), right).map((value) => value + rf);
+}
+
+function shrinkCovariance(sample: number[][]): number[][] {
+  const vol = sample.map((row, index) => Math.sqrt(Math.max(row[index], 0)));
+  const meanVol = avg(vol.filter((value) => value > 0.002));
+  const shrunkVol = vol.map((value) => (1 - VOL_SHRINK) * value + VOL_SHRINK * meanVol);
+  let corrSum = 0;
+  let corrCount = 0;
+  const corr = sample.map((row, i) => row.map((value, j) => {
+    if (i === j || vol[i] * vol[j] <= 0) return i === j ? 1 : 0;
+    const valueCorr = clamp(value / (vol[i] * vol[j]), -0.95, 0.95);
+    corrSum += valueCorr;
+    corrCount += 1;
+    return valueCorr;
+  }));
+  const meanCorr = corrCount ? corrSum / corrCount : 0;
+  return shrunkVol.map((left, i) => shrunkVol.map((right, j) => {
+    if (i === j) return left * left;
+    const mixed = (1 - CORR_SHRINK) * corr[i][j] + CORR_SHRINK * meanCorr;
+    return mixed * left * right;
+  }));
 }
 
 function score(weights: number[], mu: number[], cov: number[][], rf: number, returns: number[][]): MixPoint {
@@ -93,17 +183,23 @@ function thin<T extends { ret: number; vol: number }>(rows: T[], count: number):
   return out;
 }
 
-function simplexGrid(size: number, step: number): number[][] {
+function cappedGrid(size: number, step: number, cap: number): number[][] {
   const cells = Math.round(1 / step);
+  const maxHold = Math.floor(cap / step + 1e-9);
   const out: number[][] = [];
   const acc = Array(size).fill(0);
   function walk(slot: number, remaining: number) {
+    const slotsLeft = size - slot;
+    if (remaining > maxHold * slotsLeft) return;
     if (slot === size - 1) {
-      acc[slot] = remaining / cells;
-      out.push(acc.slice());
+      if (remaining <= maxHold) {
+        acc[slot] = remaining / cells;
+        out.push(acc.slice());
+      }
       return;
     }
-    for (let held = 0; held <= remaining; held += 1) {
+    const start = Math.max(0, remaining - maxHold * (slotsLeft - 1));
+    for (let held = start; held <= Math.min(maxHold, remaining); held += 1) {
       acc[slot] = held / cells;
       walk(slot + 1, remaining - held);
     }
@@ -182,14 +278,40 @@ function covariance(returns: number[][]): number[][] {
   return cov;
 }
 
-function correlation(returns: number[][]): number[][] {
-  const cov = covariance(returns);
-  return cov.map((row, i) =>
-    row.map((value, j) => {
-      const denom = Math.sqrt(cov[i][i] * cov[j][j]);
-      return denom > 0 ? round(value / denom, 2) : 0;
-    }),
-  );
+function correlationFrom(cov: number[][]): number[][] {
+  return cov.map((row, i) => row.map((value, j) => {
+    const denom = Math.sqrt(cov[i][i] * cov[j][j]);
+    return denom > 0 ? round(value / denom, 2) : 0;
+  }));
+}
+
+function invert(matrix: number[][]): number[][] {
+  const n = matrix.length;
+  const rows = matrix.map((row, index) => [...row, ...oneHot(n, index)]);
+  for (let col = 0; col < n; col += 1) {
+    let pivot = col;
+    for (let row = col + 1; row < n; row += 1) {
+      if (Math.abs(rows[row][col]) > Math.abs(rows[pivot][col])) pivot = row;
+    }
+    [rows[col], rows[pivot]] = [rows[pivot], rows[col]];
+    const divisor = rows[col][col];
+    if (Math.abs(divisor) < 1e-12) throw new Error("The covariance matrix could not be inverted.");
+    for (let column = 0; column < n * 2; column += 1) rows[col][column] /= divisor;
+    for (let row = 0; row < n; row += 1) {
+      if (row === col) continue;
+      const factor = rows[row][col];
+      for (let column = 0; column < n * 2; column += 1) rows[row][column] -= factor * rows[col][column];
+    }
+  }
+  return rows.map((row) => row.slice(n));
+}
+
+function add(left: number[][], right: number[][]): number[][] {
+  return left.map((row, i) => row.map((value, j) => value + (right[i]?.[j] ?? 0)));
+}
+
+function addVectors(left: number[], right: number[]): number[] {
+  return left.map((value, index) => value + (right[index] ?? 0));
 }
 
 function multiply(matrix: number[][], vector: number[]): number[] {
@@ -208,6 +330,10 @@ function avg(values: number[]): number {
 
 function oneHot(size: number, index: number): number[] {
   return Array.from({ length: size }, (_, cursor) => (cursor === index ? 1 : 0));
+}
+
+function clamp(value: number, floor: number, ceiling: number): number {
+  return Math.min(ceiling, Math.max(floor, value));
 }
 
 function round(value: number, digits = 2): number {

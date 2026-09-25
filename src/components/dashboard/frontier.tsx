@@ -21,7 +21,7 @@ export function FrontierTab() {
   const liveRef = useRef(false);
   const [held, setHeld] = useState<number | null>(null);
   const query = useQuery({
-    queryKey: ["frontier"],
+    queryKey: ["frontier-bl"],
     queryFn: () => getFrontier({ data: { live: liveRef.current } }),
     staleTime: 6 * 60 * 60 * 1000,
   });
@@ -68,7 +68,7 @@ function FrontierDesk({
         kicker={`${model.start} to ${model.end} · ${model.days} stock-market days`}
       >
         <p className="max-w-3xl text-sm text-muted">
-          The curve is the efficient frontier: the mixes that earned the most, in this history, for each amount of yearly bumpiness. Bumpiness here is volatility, the annualized standard deviation of daily moves. The slider is a ceiling. The desk then picks the highest past return that still stays under it.
+          The curve is the efficient frontier after four corrections. The return is not the last five years' average. It starts from market-cap weights, reads the return those weights imply, then blends in a forward view from dividends, inflation, and the Treasury yield. Volatility outliers are pulled toward the average. No holding can exceed {model.weightCap.toFixed(0)}%. A 15% cap cannot add up to 100% across five holdings. The slider is still a ceiling on bumpiness, and the desk picks the highest corrected return that stays under it.
         </p>
         <label className="mt-4 block text-sm">
           <span className="flex items-baseline justify-between gap-3">
@@ -93,13 +93,48 @@ function FrontierDesk({
               : "Under this ceiling the mix holds more bills. It is smoother, and it gives up return. Sharpe stays similar until you pass the best point."}
         </p>
         <div className="mt-4 grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
-          <Stat label="Expected return" value={fmtPct(chosen.ret)} plain="Average yearly gain in this sample. Not a forecast." />
-          <Stat label="Volatility" value={`${chosen.vol.toFixed(1)}%`} plain="How wide the yearly result typically swings." />
+          <Stat label="Expected return" value={fmtPct(chosen.ret)} plain="Corrected yearly gain used by the curve. Not the past average, and not a promise." />
+          <Stat label="Volatility" value={`${chosen.vol.toFixed(1)}%`} plain="Yearly bumpiness after outliers are pulled toward the average." />
           <Stat label="Sharpe" value={chosen.sharpe.toFixed(2)} plain="Extra return over cash, per unit of bumpiness. Higher is more comfortable reward." />
           <Stat label="Sortino" value={chosen.sortino.toFixed(2)} plain="Like Sharpe, but only the down days count. Upside does not get punished." />
           <Stat label="Worst fall" value={fmtPct(chosen.maxDrawdown)} plain="Largest peak-to-trough drop if you had held this mix and rebalanced every day." />
           <Stat label="Calmar" value={chosen.calmar == null ? "—" : chosen.calmar.toFixed(2)} plain="Yearly return divided by that worst fall. Higher means the crashes were smaller relative to the gain." />
         </div>
+      </Panel>
+
+      <Panel title="Where the return comes from" kicker="Past result, forward view, market weight, equilibrium, then the blend the curve uses.">
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[44rem] text-sm">
+            <thead>
+              <tr className="text-left text-xs text-muted">
+                <th className="py-2 pr-3 font-medium">Asset</th>
+                <th className="px-2 py-2 font-medium">Past 5y</th>
+                <th className="px-2 py-2 font-medium">Forward view</th>
+                <th className="px-2 py-2 font-medium">Market weight</th>
+                <th className="px-2 py-2 font-medium">Equilibrium</th>
+                <th className="px-2 py-2 font-medium">Used</th>
+              </tr>
+            </thead>
+            <tbody>
+              {model.bridges.map((row) => (
+                <tr key={row.label} className="border-t border-line align-top">
+                  <td className="py-3 pr-3">
+                    <span className="block">{row.label}</span>
+                    <span className="text-xs text-muted">{row.note}</span>
+                  </td>
+                  <td className="px-2 py-3 font-mono tabular-nums text-muted">{fmtPct(row.historical)}</td>
+                  <td className="px-2 py-3 font-mono tabular-nums">{fmtPct(row.forward)}</td>
+                  <td className="px-2 py-3 font-mono tabular-nums">{row.marketWeight.toFixed(1)}%</td>
+                  <td className="px-2 py-3 font-mono tabular-nums">{fmtPct(row.equilibrium)}</td>
+                  <td className="px-2 py-3 font-mono tabular-nums">{fmtPct(row.posterior)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p className="mt-3 max-w-3xl text-sm text-muted">
+          Market weight is the neutral mix: bitcoin's size, the S&P 500 with the Nasdaq-100 carved out so it is not counted twice, gold above ground, and marketable Treasury bills. Equilibrium is the return those weights imply if the market is already sensible, using a risk aversion of 2.5. Used is the Black-Litterman blend of that equilibrium and the forward view. Inflation is {model.inflation.toFixed(2)}%. Cash is the 3-month bill at {model.rf.toFixed(2)}%.
+        </p>
       </Panel>
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(16rem,0.8fr)]">
@@ -140,7 +175,7 @@ function FrontierDesk({
             </ResponsiveContainer>
           </div>
           <p className="mt-2 text-sm text-muted">
-            The green line joins the mixes that earned the most for each level of bumpiness. The labeled spots sit on that line. They ignore the slider: each one is the highest reading of that ratio if you set no volatility ceiling. The red dot is the mix inside your ceiling. The dashed line is that ceiling. Cash for Sharpe is the Treasury fund's own return, {model.rf.toFixed(1)}% a year.
+            The green line is the corrected frontier: the highest blended return at each level of shrunk bumpiness, with no holding above {model.weightCap.toFixed(0)}%. The labeled spots ignore the volatility slider. They are the best Sharpe, Sortino, and Calmar on that capped line. The red dot is the mix inside your ceiling. The dashed line is that ceiling.
           </p>
           <div className="mt-3 grid gap-2 sm:grid-cols-3">
             {spots.map((spot) => (
@@ -152,7 +187,7 @@ function FrontierDesk({
             ))}
           </div>
         </Panel>
-        <Panel title="Weights in the mix" kicker="Long only. They add up to 100%.">
+        <Panel title="Weights in the mix" kicker={`Long only, and no holding above ${model.weightCap.toFixed(0)}%.`}>
           <div className="grid gap-3">
             {model.labels.map((label, index) => (
               <div key={label}>
@@ -232,7 +267,7 @@ function FrontierDesk({
         <Panel title="When it misleads" kicker="The curve is fit to the same history it brags about.">
           <ul className="grid list-disc gap-2 pl-4 text-sm text-muted">
             <li>A regime change. A rate shock or a crypto winter makes the old "best" mix the last winner, not the next one.</li>
-            <li>Average returns are noisy. Shift the window a year and the weights move. The curve overfits.</li>
+            <li>Average returns from a hot streak are noisy. This curve throws those averages out, but the forward view can still be wrong: real growth is fixed at 2%, multiples are assumed not to change, gold's real return is set to zero, and bitcoin has no valuation anchor.</li>
             <li>Volatility understates crashes. Bitcoin's worst fall in this sample is much larger than its yearly bumpiness suggests.</li>
             <li>It ignores fees, taxes, and the fact you will not rebalance every afternoon. Very low ceilings just hold bills and earn the cash rate.</li>
           </ul>
