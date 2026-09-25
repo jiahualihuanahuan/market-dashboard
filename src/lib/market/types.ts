@@ -83,6 +83,11 @@ export type ChainRatio = {
 
 export type HeatCell = {
   symbol: string;
+  name: string;
+  sector: string;
+  industry: string;
+  cap: number;
+  currency: string;
   d1: number | null;
   w1: number | null;
   m1: number | null;
