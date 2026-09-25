@@ -14,6 +14,13 @@ export const getBoard = createServerFn({ method: "GET" })
     return loadBoard(data.fresh);
   });
 
+export const getFedWatch = createServerFn({ method: "GET" })
+  .validator(freshFlag)
+  .handler(async ({ data }) => {
+    const { loadFedWatch } = await import("./fedwatch.server");
+    return loadFedWatch(data.fresh);
+  });
+
 export const getSmartMoney = createServerFn({ method: "GET" })
   .validator(freshFlag)
   .handler(async ({ data }) => {

@@ -1,6 +1,9 @@
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import type { Board, Curve } from "@/lib/market/types";
+import type { FedMeeting } from "@/lib/market/fedwatch";
+import { getFedWatch } from "@/lib/market/board.functions";
 import { fmtBp } from "@/lib/market/format";
 import { Panel, tooltipStyle } from "@/components/dashboard/bits";
 import { cn } from "@/lib/utils";
@@ -33,6 +36,7 @@ export function Yields({ board }: { board: Board }) {
 
   return (
     <div className="grid gap-4">
+      <FedWatchPanel />
       <div className="grid gap-3 sm:grid-cols-3">
         <Callout label="10y minus 2y" value={fmtBp(board.t10y2y)} hot={inverted} />
         <Callout label="10y minus 3m" value={fmtBp(board.t10y3m)} hot={(board.t10y3m ?? 0) < 0} />
@@ -132,6 +136,107 @@ function Callout({ label, value, hot }: { label: string; value: string; hot: boo
       <p className={cn("mt-1 font-mono text-2xl tabular-nums", hot ? "text-down" : "text-fg")}>{value}</p>
     </div>
   );
+}
+
+function FedWatchPanel() {
+  const query = useQuery({
+    queryKey: ["fedwatch"],
+    queryFn: () => getFedWatch({ data: { fresh: false } }),
+    staleTime: 30 * 60 * 1000,
+  });
+  const data = query.data;
+  const leader = data?.meetings[0];
+  const favorite = leader ? [...leader.outcomes].sort((a, b) => b.probability - a.probability)[0] : null;
+
+  return (
+    <Panel
+      title="Fed funds and the next decisions"
+      kicker={
+        data
+          ? `CME FedWatch method · ${data.source === "cme-settlement" ? "ZQ settlements" : "ZQ last prices"} · ${pretty(data.asOf)}`
+          : "CME FedWatch method · 30-day Fed Funds futures"
+      }
+    >
+      {query.isPending ? <p className="text-sm text-muted">Reading the fed funds rate and the futures curve.</p> : null}
+      {query.isError ? (
+        <p className="text-sm text-muted">
+          {query.error instanceof Error ? query.error.message : "The FedWatch curve did not answer."}
+        </p>
+      ) : null}
+      {data ? (
+        <>
+          <div className="mb-4 grid gap-3 sm:grid-cols-3">
+            <Callout label="Target range" value={band(data.targetLow, data.targetHigh)} hot={false} />
+            <Callout label={`Effective funds · ${pretty(data.effrAsOf)}`} value={`${data.effr.toFixed(2)}%`} hot={false} />
+            <Callout
+              label={leader ? `Next · ${pretty(leader.date)}` : "Next meeting"}
+              value={favorite ? `${moveLabel(favorite.steps)} ${favorite.probability.toFixed(1)}%` : "—"}
+              hot={false}
+            />
+          </div>
+          <div className="grid gap-3 lg:grid-cols-2">
+            {data.meetings.map((meeting) => (
+              <MeetingCard key={meeting.date} meeting={meeting} />
+            ))}
+          </div>
+          <p className="mt-3 text-xs text-muted">
+            Probabilities are the market’s pricing of the target range after each meeting, using the same day-count as the CME FedWatch tool.
+            {data.source === "yahoo-last"
+              ? " This pass uses Yahoo last prices on the CME ZQ contracts, not the licensed FedWatch feed."
+              : " Settlements are from CME’s public ZQ file, not the licensed FedWatch API."}
+            {" "}Not a forecast from the Fed.
+          </p>
+        </>
+      ) : null}
+    </Panel>
+  );
+}
+
+function MeetingCard({ meeting }: { meeting: FedMeeting }) {
+  const top = [...meeting.outcomes].sort((a, b) => b.probability - a.probability)[0];
+  return (
+    <div className="rounded-lg border border-line bg-bg p-3">
+      <div className="mb-3 flex items-baseline justify-between gap-3">
+        <p className="text-sm font-medium">{pretty(meeting.date)}</p>
+        <p className="font-mono text-xs text-muted">{meeting.contract}</p>
+      </div>
+      <ul className="grid gap-2">
+        {meeting.outcomes.map((outcome) => (
+          <li key={outcome.steps}>
+            <div className="mb-1 flex items-baseline justify-between gap-3 text-xs">
+              <span className={outcome.steps === top?.steps ? "text-fg" : "text-muted"}>
+                {band(outcome.low, outcome.high)}
+                <span className="ml-2 font-mono text-subtle">{moveLabel(outcome.steps)}</span>
+              </span>
+              <span className="font-mono tabular-nums">{outcome.probability.toFixed(1)}%</span>
+            </div>
+            <div className="h-1.5 overflow-hidden rounded-full bg-elevated">
+              <div
+                className={cn("h-full", outcome.steps === top?.steps ? "bg-accent" : "bg-muted")}
+                style={{ width: `${Math.max(1.5, outcome.probability)}%` }}
+              />
+            </div>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function band(low: number, high: number): string {
+  return `${low.toFixed(2)}–${high.toFixed(2)}%`;
+}
+
+function moveLabel(steps: number): string {
+  if (steps === 0) return "Unchanged";
+  const bp = Math.abs(steps) * 25;
+  return steps > 0 ? `+${bp} bp` : `−${bp} bp`;
+}
+
+function pretty(iso: string): string {
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const [year, month, day] = iso.split("-");
+  return `${months[Number(month) - 1]} ${Number(day)}, ${year}`;
 }
 
 function rowsFor(curves: Curve[]) {
