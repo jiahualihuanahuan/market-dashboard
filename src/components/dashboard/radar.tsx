@@ -23,7 +23,10 @@ export function Radar({ board, ready }: { board: Board; ready: boolean }) {
 
   return (
     <div className="grid gap-4">
-      <Panel title="Where idle cash would go" kicker="Safety cash stays in Treasuries and is not on this list. Ranked for a weekly look, not a daily chase.">
+      <Panel title="Where idle cash would go" kicker="Safety cash stays in Treasuries and is not on this list.">
+        <p className="mb-3 text-sm text-muted">
+          A zone is the price band where you would actually buy. Below it is cheaper than you planned. Above the skip line, you walk away. The score only sorts the list for a weekly look. Idle cash is money you could invest and have not. Two years of living expenses in government bonds is not idle cash.
+        </p>
         {!ready ? <p className="text-sm text-muted">Reading your zones…</p> : null}
         <div className="overflow-x-auto">
           <table className="w-full min-w-max text-sm">

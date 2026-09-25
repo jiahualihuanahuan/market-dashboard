@@ -4,6 +4,7 @@ import { spotFor, UNIVERSE, UNIVERSE_BY_SYMBOL } from "@/lib/market/universe";
 import type {
   Board,
   ChainRatio,
+  CnnFear,
   Curve,
   IndexBreadth,
   InsiderFiling,
@@ -52,11 +53,11 @@ const MANAGERS = [
 ];
 
 export async function loadBoard(fresh: boolean): Promise<Board> {
-  if (!fresh && boardCache && boardCache.data.ratios && boardCache.data.breadth.indexes?.length && Date.now() - boardCache.at < 8 * 60 * 1000) {
+  if (!fresh && boardCache && boardCache.data.ratios && boardCache.data.breadth.indexes?.length && "fearCnn" in boardCache.data && Date.now() - boardCache.at < 8 * 60 * 1000) {
     return boardCache.data;
   }
   const warnings: string[] = [];
-  const [quoteRows, fred, fearCrypto, indexes] = await Promise.all([
+  const [quoteRows, fred, fearCrypto, indexes, fearCnn] = await Promise.all([
     mapPool(UNIVERSE, 12, (item) => loadQuote(item.symbol).catch(() => null)),
     loadFred().catch((error: unknown) => {
       warnings.push(error instanceof Error ? error.message : "Yield feed failed");
@@ -64,6 +65,7 @@ export async function loadBoard(fresh: boolean): Promise<Board> {
     }),
     loadFear().catch(() => null),
     import("./breadth.server").then((mod) => mod.loadIndexBreadth()).catch(() => [] as IndexBreadth[]),
+    loadCnn().catch(() => null),
   ]);
 
   const raw = quoteRows.filter((row): row is RawQuote => row != null);
@@ -162,6 +164,7 @@ export async function loadBoard(fresh: boolean): Promise<Board> {
     real10: fred?.real10 ?? null,
     fearCrypto,
     fearEquity,
+    fearCnn,
     crossCheck,
     macro: fred?.macro ?? [],
     warnings,
@@ -365,6 +368,63 @@ function ratioSeries(spotBars: Bar[], etfBars: Bar[]): Omit<ChainRatio, "chain" 
     band: round((1.5 * sd / mean) * 100),
     points,
   };
+}
+
+async function loadCnn(): Promise<CnnFear | null> {
+  const response = await fetch("https://production.dataviz.cnn.io/index/fearandgreed/graphdata", {
+    headers: {
+      "user-agent": "Mozilla/5.0 (compatible; MarketDesk/1.0)",
+      accept: "application/json",
+      referer: "https://www.cnn.com/markets/fear-and-greed",
+    },
+    signal: AbortSignal.timeout(12000),
+  });
+  if (!response.ok) return null;
+  const json = await response.json();
+  const headline = json?.fear_and_greed;
+  const score = Number(headline?.score);
+  if (!Number.isFinite(score)) return null;
+  const ids = [
+    "market_momentum_sp500",
+    "stock_price_strength",
+    "stock_price_breadth",
+    "put_call_options",
+    "market_volatility_vix",
+    "junk_bond_demand",
+    "safe_haven_demand",
+  ];
+  const parts = ids.flatMap((id) => {
+    const row = json?.[id];
+    const partScore = Number(row?.score);
+    if (!Number.isFinite(partScore)) return [];
+    return [{ id, score: Math.round(partScore), rating: titleCase(String(row.rating || "")) }];
+  });
+  const history = downsample(
+    ((json?.fear_and_greed_historical?.data ?? []) as { x?: number; y?: number }[])
+      .filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y))
+      .map((point) => ({ d: new Date(Number(point.x)).toISOString().slice(0, 10), v: Math.round(Number(point.y)) })),
+    40,
+  );
+  return {
+    score: Math.round(score),
+    rating: titleCase(String(headline.rating || fearLabel(score))),
+    previousClose: finite(headline.previous_close),
+    week: finite(headline.previous_1_week),
+    month: finite(headline.previous_1_month),
+    year: finite(headline.previous_1_year),
+    asOf: String(headline.timestamp || ""),
+    history,
+    parts,
+  };
+}
+
+function titleCase(value: string): string {
+  return value.replace(/\w\S*/g, (word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase());
+}
+
+function finite(value: unknown): number | null {
+  const number = Number(value);
+  return Number.isFinite(number) ? Math.round(number) : null;
 }
 
 async function loadFear(): Promise<{ value: number; label: string } | null> {

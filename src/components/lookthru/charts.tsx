@@ -35,10 +35,10 @@ export function CompositionCharts({ result }: { result: LookthroughResult }) {
 
   return (
     <div className="grid gap-4 lg:grid-cols-2">
-      <ChartCard title="Top underlying stocks" subtitle="Share of portfolio NAV">
+      <ChartCard title="Top underlying stocks" subtitle="NAV is the portfolio’s value. This is each stock’s share of that value.">
         <BarBlock data={top} currency={result.currency} />
       </ChartCard>
-      <ChartCard title="Sector mix" subtitle="Look-through, including nested ETFs">
+      <ChartCard title="Sector mix" subtitle="Look-through means opening each fund and counting the stocks inside, including a fund that holds other funds.">
         <BarBlock data={sectors} currency={result.currency} />
       </ChartCard>
     </div>

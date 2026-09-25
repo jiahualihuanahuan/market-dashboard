@@ -10,7 +10,7 @@ export function Macro({ board }: { board: Board }) {
       <Prints title="Canada" rows={ca} />
       <Panel title="On the calendar, not in this table" kicker="No invented consensus">
         <p className="max-w-2xl text-sm text-muted">
-          Also watched: the Fed decision and the dot plot; Canada CPI-trim and CPI-median, the participation rate, retail trade, the trade balance, and the Bank of Canada rate with the Monetary Policy Report. Those series are not wired here, so they are named rather than filled with a guess. “Next” dates that are not a first-Friday payroll rule are windows, not the official release clock.
+          There is no “expected” column. A guessed consensus would be invented. Also watched, but not filled in here: the Fed’s rate decision and its dot plot (each official’s guess of future rates); Canada’s trimmed and median inflation, the share of people working or looking for work, retail sales, the trade balance, and the Bank of Canada rate. “Next” dates that are not the payroll rule are windows, not an official clock.
         </p>
       </Panel>
     </div>
@@ -19,7 +19,7 @@ export function Macro({ board }: { board: Board }) {
 
 function Prints({ title, rows }: { title: string; rows: Board["macro"] }) {
   return (
-    <Panel title={title} kicker="Latest actual and the print before it">
+    <Panel title={title} kicker="Actual is the published number. Prior is the release before it.">
       <div className="overflow-x-auto">
         <table className="w-full min-w-max text-sm">
           <thead>

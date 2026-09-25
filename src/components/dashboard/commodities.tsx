@@ -273,7 +273,7 @@ function RatioChart({ chain, ratio }: { chain: ChainId; ratio: ChainRatio | null
           </ComposedChart>
         </ResponsiveContainer>
       </div>
-      <p className="mt-3 text-sm text-muted">{read} Not a signal to trade.</p>
+      <p className="mt-3 text-sm text-muted">{read} A z-score of 0 is typical for the last 60 sessions. Past 1.5 either way is unusual. Rich means the miner fund is expensive versus the metal. Cheap means the metal has run ahead of the miners. Not a signal to trade.</p>
     </div>
   );
 }

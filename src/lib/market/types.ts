@@ -81,6 +81,20 @@ export type ChainRatio = {
   points: RatioPoint[];
 };
 
+export type CnnPart = { id: string; score: number; rating: string };
+
+export type CnnFear = {
+  score: number;
+  rating: string;
+  previousClose: number | null;
+  week: number | null;
+  month: number | null;
+  year: number | null;
+  asOf: string;
+  history: { d: string; v: number }[];
+  parts: CnnPart[];
+};
+
 export type Board = {
   asOf: string;
   fetchedAt: string;
@@ -99,6 +113,7 @@ export type Board = {
   real10: number | null;
   fearCrypto: { value: number; label: string } | null;
   fearEquity: { value: number; label: string } | null;
+  fearCnn: CnnFear | null;
   crossCheck: string;
   macro: MacroPrint[];
   warnings: string[];

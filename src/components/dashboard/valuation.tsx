@@ -80,7 +80,8 @@ export function Valuation({ board }: { board: Board }) {
             <Field label="Net debt / share" value={netDebt} onChange={setNetDebt} />
           </div>
           <p className="mt-3 text-sm text-muted">
-            {yardstick ? `A 4% free-cash-flow yield on this close is ${fmtPrice(yardstick)} per share. That is a yardstick, not a forecast.` : "Waiting on a price."}
+            Free cash flow is cash left after the spending needed to keep the business running. The discount rate is the yearly return you demand for waiting and for risk. Terminal growth is how fast you assume that cash grows forever after the years you typed in; it has to stay below the discount rate. Net debt is borrowings minus cash.
+            {yardstick ? ` A 4% free-cash-flow yield on this close is ${fmtPrice(yardstick)} per share. That is a yardstick, not a forecast.` : ""}
           </p>
           {dcf == null ? (
             <p className="mt-3 text-sm text-muted">Enter free cash flow per share to see a value.</p>
@@ -107,10 +108,16 @@ export function Valuation({ board }: { board: Board }) {
               ["Price at that P/B", pbValue ? fmtPrice(pbValue) : "—"],
             ]}
           />
+          <p className="mt-3 text-sm text-muted">
+            P/E is the share price divided by the last year of profit. P/B is the price divided by the accountants’ book value per share. “Turns” is how many multiples you are above or below the typical company you have in mind.
+          </p>
         </Panel>
       </div>
 
-      <Panel title="Sum of the parts" kicker="Segment metric times a peer multiple, minus net debt, over diluted shares. Figures in millions except the per-share result.">
+      <Panel title="Sum of the parts" kicker="Value each business, then subtract what the company owes">
+        <p className="mb-3 text-sm text-muted">
+          Price each segment as if you sold it at a similar company’s multiple, subtract net debt, and divide by the diluted share count. Diluted shares include stock that options and convertibles could create. Figures are in millions except the per-share result.
+        </p>
         <div className="grid gap-3">
           {segments.map((segment, index) => (
             <div key={index} className="grid gap-2 sm:grid-cols-3">

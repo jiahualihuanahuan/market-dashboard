@@ -27,7 +27,9 @@ export function Smart() {
 
   return (
     <div className="grid gap-4">
-      <p className="text-sm text-muted">{data.note}</p>
+      <p className="text-sm text-muted">
+        A 13F is the quarterly list of US stocks a large manager must file with the SEC, usually about 45 days after the quarter ends. It is late, and it misses bets against stocks and most foreign holdings. A Form 4 is the notice when a director or senior officer buys or sells their own company’s shares. That one is much closer to today. {data.note}
+      </p>
       <div className="flex justify-end">
         <Button
           variant="ghost"

@@ -37,14 +37,17 @@ export function Yields({ board }: { board: Board }) {
   return (
     <div className="grid gap-4">
       <FedWatchPanel />
+      <p className="text-sm text-muted">
+        These are Treasury yields, the interest rate the US government pays to borrow. “10-year minus 2-year” is the long rate minus the short rate. Negative means the curve is inverted: short loans pay more than long ones, which has often shown up a year or so before recessions. Real means after expected inflation. A basis point (bp) is 0.01 percentage points.
+      </p>
       <div className="grid gap-3 sm:grid-cols-3">
-        <Callout label="10y minus 2y" value={fmtBp(board.t10y2y)} hot={inverted} />
-        <Callout label="10y minus 3m" value={fmtBp(board.t10y3m)} hot={(board.t10y3m ?? 0) < 0} />
-        <Callout label="10y real" value={board.real10 == null ? "—" : `${board.real10.toFixed(2)}%`} hot={false} />
+        <Callout label="10-year minus 2-year" value={fmtBp(board.t10y2y)} hot={inverted} />
+        <Callout label="10-year minus 3-month" value={fmtBp(board.t10y3m)} hot={(board.t10y3m ?? 0) < 0} />
+        <Callout label="10-year after inflation" value={board.real10 == null ? "—" : `${board.real10.toFixed(2)}%`} hot={false} />
       </div>
       <Panel
         title="US Treasury curve"
-        kicker="Fed funds through the 30-year. FRED, last print before each date."
+        kicker="From the overnight bank rate out to 30 years. FRED is the St. Louis Fed’s public database."
         action={
           <label className="text-xs text-muted">
             Custom month
@@ -107,10 +110,13 @@ export function Yields({ board }: { board: Board }) {
           </ResponsiveContainer>
         </div>
         <p className="mt-3 text-sm text-muted">
-          An inversion of 10s–2s or 10s–3m has historically led recessions by roughly 12 to 18 months. It is a warning, not a date. Anchors mark the March 2000 top, the June 2007 top, and the August 2019 inversion trough.
+          An inversion of the 10-year against the 2-year, or against the 3-month bill, has historically led recessions by roughly 12 to 18 months. It is a warning, not a date. The faint lines mark the March 2000 market top, the June 2007 top, and the August 2019 inverted trough. FF on the axis is the fed funds rate, the overnight rate banks charge each other.
         </p>
       </Panel>
-      <Panel title="Curve and credit" kicker="Month-end, since 2018">
+      <Panel title="The slope, junk bonds, and the real yield" kicker="Month-end, since 2018">
+        <p className="mb-3 text-sm text-muted">
+          The slope is the 10-year yield minus the 2-year. Junk-bond extra yield is what investors demand above government bonds to lend to shaky companies. The real yield is the 10-year after inflation.
+        </p>
         <div className="h-56">
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={board.spreadPath}>
@@ -118,9 +124,9 @@ export function Yields({ board }: { board: Board }) {
               <XAxis dataKey="d" tick={{ fill: "var(--color-subtle)", fontSize: 11 }} minTickGap={40} />
               <YAxis tick={{ fill: "var(--color-subtle)", fontSize: 11 }} width={40} />
               <Tooltip {...tooltipStyle} />
-              <Line dataKey="curve" name="10y–2y" stroke="var(--color-fg)" dot={false} strokeWidth={2} />
-              <Line dataKey="hy" name="HY OAS" stroke="var(--color-down)" dot={false} />
-              <Line dataKey="real" name="10y real" stroke="var(--color-up)" dot={false} />
+              <Line dataKey="curve" name="10y minus 2y" stroke="var(--color-fg)" dot={false} strokeWidth={2} />
+              <Line dataKey="hy" name="Junk extra yield" stroke="var(--color-down)" dot={false} />
+              <Line dataKey="real" name="10y after inflation" stroke="var(--color-up)" dot={false} />
             </LineChart>
           </ResponsiveContainer>
         </div>
@@ -180,9 +186,9 @@ function FedWatchPanel() {
             ))}
           </div>
           <p className="mt-3 text-xs text-muted">
-            Probabilities are the market’s pricing of the target range after each meeting, using the same day-count as the CME FedWatch tool.
+            Probabilities are the futures market’s price for the fed funds range after each meeting, the same idea as the CME FedWatch tool. Unchanged means no move. 25 bp is a quarter of a percent. ZQ is the futures contract those odds come from.
             {data.source === "yahoo-last"
-              ? " This pass uses Yahoo last prices on the CME ZQ contracts, not the licensed FedWatch feed."
+              ? " This pass uses Yahoo’s last price on those contracts, not the licensed FedWatch feed."
               : " Settlements are from CME’s public ZQ file, not the licensed FedWatch API."}
             {" "}Not a forecast from the Fed.
           </p>

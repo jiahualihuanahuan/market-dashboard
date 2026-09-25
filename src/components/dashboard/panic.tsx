@@ -28,7 +28,8 @@ export function Panic({ board }: { board: Board }) {
           <Meter label="Decliners" value={decliners} max={100} mark={breadthPanic} suffix="%" />
         </div>
         <ul className="mt-6 grid gap-2 text-sm text-muted">
-          <li>Two years of living expenses stay in Treasuries. This screen never touches that pile.</li>
+          <li>Two years of living expenses stay in Treasuries, which are US government bonds. This screen never touches that pile. Idle cash is only the money you could invest and have not.</li>
+          <li>VIX is the price of 30-day insurance on the S&P 500. A high number means traders are paying up to be protected. Decliners are the share of index members that closed down.</li>
           <li>Idle cash deploys in two steps: {partialPct}% when VIX clears {partialVix}, the rest when it clears {fullVix}.</li>
           <li>Both steps also need at least {breadthPanic}% of the {book} down on the day. A volatility spike without a broad flush is not the trade.</li>
           <li>Cash has an opportunity cost. The point of the rule is to spend it when prices already discount a scare, not to admire a high VIX.</li>

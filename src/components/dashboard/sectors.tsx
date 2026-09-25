@@ -20,13 +20,14 @@ export function Sectors({ board }: { board: Board }) {
 
   return (
     <div className="grid gap-4">
-      <Panel title="What the curve is saying" kicker="Equal-weight of the names in each sleeve, last month.">
+      <Panel title="What the yield curve is saying" kicker="Each stock in a group counts the same">
         <p className="max-w-2xl text-sm text-muted">
+          Equal weight means a giant does not drown out a smaller name. A sleeve is the handful of stocks this desk uses for that industry, not every company in the sector. The last-month bars are percent changes.
           {slope == null
-            ? "The 10y–2y spread did not load."
+            ? " The 10-year minus 2-year spread did not load."
             : slope >= 0
-              ? `The curve is positive, 10y–2y at ${fmtBp(slope)}. Steepening tends to help bank margins and the cyclical sleeves. REITs and utilities still care about the level of the long bond, not just the slope.`
-              : `The curve is inverted, 10y–2y at ${fmtBp(slope)}. That has been a recession warning and a headwind for net interest margin, with the old caveat that a hiking-cycle flatten can still be kind to deposit-funded banks.`}
+              ? ` The curve is upward, 10-year minus 2-year at ${fmtBp(slope)}. A steeper curve usually helps bank profits, because they borrow short and lend long. Property stocks and utilities still care how high the long-term rate is, not only the slope.`
+              : ` The curve is inverted, 10-year minus 2-year at ${fmtBp(slope)}. Short rates are above long rates. That has been a recession warning and a squeeze on bank margins. A hiking cycle can still be kind to banks that fund themselves with deposits.`}
           {steepening == null ? "" : ` Versus a month ago the spread has moved ${fmtBp(steepening)}.`}
         </p>
         <div className="mt-4 h-64">
@@ -56,10 +57,11 @@ export function Sectors({ board }: { board: Board }) {
           </article>
         ))}
       </div>
-      <Panel title="The rest of the dashboard that this rotation listens to">
+      <Panel title="Other numbers this tab is listening to">
+        <p className="mb-3 text-sm text-muted">Real yield is the 10-year after inflation. Junk extra yield is the premium for lending to shaky companies. WTI is US oil. The dollar is the dollar index.</p>
         <dl className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <Item label="10y real" value={board.real10 == null ? "—" : `${board.real10.toFixed(2)}%`} />
-          <Item label="HY OAS" value={board.hyOas == null ? "—" : `${(board.hyOas * 100).toFixed(0)} bp`} />
+          <Item label="10-year after inflation" value={board.real10 == null ? "—" : `${board.real10.toFixed(2)}%`} />
+          <Item label="Junk extra yield" value={board.hyOas == null ? "—" : `${(board.hyOas * 100).toFixed(0)} bp`} />
           <Item label="WTI, 1m" value={fmtPct(oil?.m1)} />
           <Item label="Dollar, 1m" value={fmtPct(dollar?.m1)} />
         </dl>

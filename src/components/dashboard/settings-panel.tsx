@@ -21,7 +21,7 @@ export function SettingsPanel() {
 
   return (
     <div className="grid gap-4">
-      <Panel title="Buy zones" kicker="Defaults follow the desk rules. Edit them. They stay in this browser.">
+      <Panel title="Buy zones" kicker="A zone is the price band where you would buy. Saved in this browser only.">
         <div className="grid gap-4">
           {zones.map((zone) => (
             <ZoneRow key={zone.symbol} zone={zone} onSave={upsertZone} onRemove={() => removeZone(zone.symbol)} />
