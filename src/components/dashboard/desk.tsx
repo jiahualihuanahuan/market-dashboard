@@ -13,6 +13,7 @@ import {
   Scale,
   Settings,
   ShieldAlert,
+  Spline,
   Waypoints,
 } from "lucide-react";
 import { getBoard, getFedWatch, getSmartMoney } from "@/lib/market/board.functions";
@@ -25,6 +26,7 @@ import { Overview } from "@/components/dashboard/overview";
 import { Yields } from "@/components/dashboard/yields";
 import { Commodities } from "@/components/dashboard/commodities";
 import { HeatmapTab } from "@/components/dashboard/heatmap";
+import { FrontierTab } from "@/components/dashboard/frontier";
 import { Valuation } from "@/components/dashboard/valuation";
 import { Radar } from "@/components/dashboard/radar";
 import { Panic } from "@/components/dashboard/panic";
@@ -39,6 +41,7 @@ const NAV: { id: TabId; label: string; icon: typeof LayoutDashboard }[] = [
   { id: "yields", label: "Yield curve", icon: LineChart },
   { id: "commodities", label: "Commodities", icon: Layers },
   { id: "heatmap", label: "Heat map", icon: LayoutGrid },
+  { id: "frontier", label: "Frontier", icon: Spline },
   { id: "valuation", label: "Valuation", icon: Scale },
   { id: "radar", label: "Opportunity", icon: Crosshair },
   { id: "panic", label: "Panic rules", icon: ShieldAlert },
@@ -66,7 +69,7 @@ export function Desk() {
     setReady(true);
   }, []);
 
-  const needsBoard = search.tab !== "lookthru" && search.tab !== "smart" && search.tab !== "settings" && search.tab !== "heatmap";
+  const needsBoard = search.tab !== "lookthru" && search.tab !== "smart" && search.tab !== "settings" && search.tab !== "heatmap" && search.tab !== "frontier";
   const data = board.data;
   const vix = data?.quotes.find((quote) => quote.symbol === "^VIX");
   const active = NAV.find((item) => item.id === search.tab) ?? NAV[0];
@@ -98,7 +101,7 @@ export function Desk() {
                   if (search.tab === "smart") {
                     const next = await getSmartMoney({ data: { fresh: true } });
                     client.setQueryData(["smart-money"], next);
-                  } else if (search.tab === "lookthru" || search.tab === "heatmap") {
+                  } else if (search.tab === "lookthru" || search.tab === "heatmap" || search.tab === "frontier") {
                     window.dispatchEvent(new Event("desk-refresh"));
                   } else if (search.tab !== "settings") {
                     const next = await getBoard({ data: { fresh: true, live: true } });
@@ -154,6 +157,7 @@ export function Desk() {
           {data && search.tab === "yields" ? <Yields board={data} /> : null}
           {data && search.tab === "commodities" ? <Commodities board={data} /> : null}
           {search.tab === "heatmap" ? <HeatmapTab /> : null}
+          {search.tab === "frontier" ? <FrontierTab /> : null}
           {data && search.tab === "valuation" ? <Valuation board={data} /> : null}
           {data && search.tab === "radar" ? <Radar board={data} ready={ready} /> : null}
           {data && search.tab === "panic" ? <Panic board={data} /> : null}
