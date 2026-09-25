@@ -46,10 +46,14 @@ export type MacroPrint = {
   region: "US" | "Canada";
   name: string;
   actual: string;
+  expected: string;
   prior: string;
   asOf: string;
   cadence: string;
   next: string;
+  nextExpected: string;
+  /** Set once the consensus was lined up with the same month as the official print. */
+  aligned?: boolean;
 };
 
 export type SpreadPath = {

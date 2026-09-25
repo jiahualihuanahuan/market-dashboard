@@ -53,7 +53,7 @@ const MANAGERS = [
 ];
 
 export async function loadBoard(fresh: boolean, live = false): Promise<Board> {
-  if (!fresh && boardCache && boardCache.data.ratios && boardCache.data.breadth.indexes?.length && "fearCnn" in boardCache.data && Date.now() - boardCache.at < 8 * 60 * 1000) {
+  if (!fresh && boardCache && boardCache.data.ratios && boardCache.data.breadth.indexes?.length && "fearCnn" in boardCache.data && boardCache.data.macro.every((row) => row.aligned) && Date.now() - boardCache.at < 8 * 60 * 1000) {
     return boardCache.data;
   }
   const warnings: string[] = [];
@@ -562,7 +562,7 @@ async function loadFred(): Promise<FredPack> {
     ted: tedLast ? { value: tedLast.value, date: tedLast.date } : null,
     yieldVol,
     real10: realLast?.value ?? null,
-    macro: buildMacro(series, latest),
+    macro: await withExpected(buildMacro(series, latest)),
   };
 }
 
@@ -574,6 +574,29 @@ function curveOn(series: Map<string, Obs[]>, date: string): TenorPoint[] {
     points.push({ label: tenor.label, years: tenor.years, value: round(value) });
   }
   return points;
+}
+
+async function withExpected(rows: MacroPrint[]): Promise<MacroPrint[]> {
+  try {
+    const { loadExpectations } = await import("./calendar.server");
+    const expectations = await loadExpectations(rows.map((row) => ({
+      region: row.region,
+      name: row.name,
+      asOf: row.asOf,
+      actual: row.actual,
+    })));
+    return rows.map((row) => {
+      const hit = expectations.get(`${row.region}:${row.name}`);
+      return {
+        ...row,
+        expected: hit?.expected || "—",
+        nextExpected: hit?.nextExpected || "",
+        aligned: true,
+      };
+    });
+  } catch {
+    return rows;
+  }
 }
 
 function buildMacro(series: Map<string, Obs[]>, today: string): MacroPrint[] {
@@ -625,10 +648,12 @@ function buildMacro(series: Map<string, Obs[]>, today: string): MacroPrint[] {
       region: spec.region,
       name: spec.name,
       actual,
+      expected: "—",
       prior,
       asOf: last.date,
       cadence: spec.cadence,
       next: spec.next,
+      nextExpected: "",
     });
   }
   return prints;
