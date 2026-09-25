@@ -3,12 +3,14 @@ import { fearLabel } from "@/lib/market/format";
 import { spotFor, UNIVERSE, UNIVERSE_BY_SYMBOL } from "@/lib/market/universe";
 import type {
   Board,
+  ChainRatio,
   Curve,
   InsiderFiling,
   MacroPrint,
   ManagerBook,
   Overlap,
   Quote,
+  RatioPoint,
   SmartMoney,
   Spark,
   SpreadPath,
@@ -49,7 +51,7 @@ const MANAGERS = [
 ];
 
 export async function loadBoard(fresh: boolean): Promise<Board> {
-  if (!fresh && boardCache && Date.now() - boardCache.at < 8 * 60 * 1000) return boardCache.data;
+  if (!fresh && boardCache && boardCache.data.ratios && Date.now() - boardCache.at < 8 * 60 * 1000) return boardCache.data;
   const warnings: string[] = [];
   const [quoteRows, fred, fearCrypto] = await Promise.all([
     mapPool(UNIVERSE, 12, (item) => loadQuote(item.symbol).catch(() => null)),
@@ -132,6 +134,7 @@ export async function loadBoard(fresh: boolean): Promise<Board> {
     curves,
     months,
     spreadPath: fred?.spreadPath ?? [],
+    ratios: chainRatios(bySymbol),
     t10y2y: fred?.t10y2y ?? null,
     t10y3m: fred?.t10y3m ?? null,
     hyOas: fred?.hyOas ?? null,
@@ -282,6 +285,68 @@ function ratioZ(spot: Bar[], name: Bar[]): number | null {
   const sd = Math.sqrt(variance);
   if (sd < 1e-8) return null;
   return round((window[window.length - 1] - avg) / sd);
+}
+
+const RATIO_PAIRS: { chain: string; spot: string; etf: string }[] = [
+  { chain: "gold", spot: "GC=F", etf: "GDX" },
+  { chain: "silver", spot: "SI=F", etf: "SIL" },
+  { chain: "copper", spot: "HG=F", etf: "COPX" },
+  { chain: "energy", spot: "CL=F", etf: "XLE" },
+  { chain: "uranium", spot: "SRUUF", etf: "URNM" },
+];
+
+function chainRatios(bySymbol: Map<string, RawQuote>): ChainRatio[] {
+  const out: ChainRatio[] = [];
+  for (const pair of RATIO_PAIRS) {
+    const spot = bySymbol.get(pair.spot);
+    const etf = bySymbol.get(pair.etf);
+    if (!spot || !etf) continue;
+    const series = ratioSeries(spot.bars, etf.bars);
+    if (!series) continue;
+    out.push({
+      chain: pair.chain,
+      spot: pair.spot,
+      spotLabel: UNIVERSE_BY_SYMBOL.get(pair.spot)?.label ?? pair.spot,
+      etf: pair.etf,
+      etfLabel: UNIVERSE_BY_SYMBOL.get(pair.etf)?.label ?? pair.etf,
+      gap: series.gap,
+      z: series.z,
+      band: series.band,
+      points: series.points,
+    });
+  }
+  return out;
+}
+
+function ratioSeries(spotBars: Bar[], etfBars: Bar[]): Omit<ChainRatio, "chain" | "spot" | "spotLabel" | "etf" | "etfLabel"> | null {
+  const spotByDay = new Map(spotBars.map((bar) => [etDate(bar.t), bar.c]));
+  const aligned: { d: string; spot: number; ratio: number }[] = [];
+  for (const bar of etfBars) {
+    const spot = spotByDay.get(etDate(bar.t));
+    if (!spot || spot <= 0) continue;
+    aligned.push({ d: etDate(bar.t), spot, ratio: bar.c / spot });
+  }
+  if (aligned.length < 30) return null;
+  const window = aligned.slice(-60);
+  const mean = window.reduce((sum, row) => sum + row.ratio, 0) / window.length;
+  const variance = window.reduce((sum, row) => sum + (row.ratio - mean) ** 2, 0) / window.length;
+  const sd = Math.sqrt(variance);
+  if (mean <= 0 || sd < 1e-10) return null;
+  const last = aligned[aligned.length - 1];
+  const points = downsample(
+    aligned.map((row) => ({
+      d: row.d,
+      spot: round(row.spot, row.spot >= 100 ? 2 : 4),
+      gap: round(((row.ratio / mean) - 1) * 100),
+    })),
+    48,
+  );
+  return {
+    gap: round(((last.ratio / mean) - 1) * 100),
+    z: round((last.ratio - mean) / sd),
+    band: round((1.5 * sd / mean) * 100),
+    points,
+  };
 }
 
 async function loadFear(): Promise<{ value: number; label: string } | null> {

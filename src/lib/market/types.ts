@@ -46,6 +46,28 @@ export type SpreadPath = {
   real: number | null;
 };
 
+export type RatioPoint = {
+  d: string;
+  spot: number;
+  /** Miner-ETF / spot, as a percent gap versus the latest 60-session average. */
+  gap: number | null;
+};
+
+export type ChainRatio = {
+  chain: string;
+  spot: string;
+  spotLabel: string;
+  etf: string;
+  etfLabel: string;
+  /** Latest gap, percent. Positive means the ETF is rich versus spot. */
+  gap: number | null;
+  /** Latest 60-session z-score of the ratio. */
+  z: number | null;
+  /** Percent gap that equals 1.5 standard deviations. */
+  band: number | null;
+  points: RatioPoint[];
+};
+
 export type Board = {
   asOf: string;
   fetchedAt: string;
@@ -54,6 +76,7 @@ export type Board = {
   curves: Curve[];
   months: Curve[];
   spreadPath: SpreadPath[];
+  ratios: ChainRatio[];
   t10y2y: number | null;
   t10y3m: number | null;
   hyOas: number | null;

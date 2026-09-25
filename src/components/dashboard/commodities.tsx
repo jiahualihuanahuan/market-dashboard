@@ -1,6 +1,17 @@
 import { useMemo, useState } from "react";
-import { Area, AreaChart, ResponsiveContainer, Tooltip, YAxis } from "recharts";
-import type { Board, Quote } from "@/lib/market/types";
+import {
+  Area,
+  AreaChart,
+  CartesianGrid,
+  ComposedChart,
+  Line,
+  ReferenceLine,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+import type { Board, ChainRatio, Quote } from "@/lib/market/types";
 import { CHAINS, UNIVERSE, UNIVERSE_BY_SYMBOL, type ChainId, type GroupId } from "@/lib/market/universe";
 import { fmtPrice } from "@/lib/market/format";
 import { Heat, Panel, Tone, tooltipStyle } from "@/components/dashboard/bits";
@@ -77,6 +88,7 @@ export function Commodities({ board }: { board: Board }) {
             );
           })}
         </div>
+        <RatioChart chain={chain} ratio={(board.ratios ?? []).find((item) => item.chain === chain) ?? null} />
       </Panel>
 
       {selected ? (
@@ -176,6 +188,92 @@ export function Commodities({ board }: { board: Board }) {
           </table>
         </div>
       </Panel>
+    </div>
+  );
+}
+
+function RatioChart({ chain, ratio }: { chain: ChainId; ratio: ChainRatio | null }) {
+  if (chain === "ag") {
+    return (
+      <p className="mt-4 text-sm text-muted">
+        Agriculture uses DBA itself as the benchmark, so there is no separate miner ETF to ratio against spot.
+      </p>
+    );
+  }
+  if (!ratio || ratio.points.length < 2 || ratio.band == null) {
+    return <p className="mt-4 text-sm text-muted">The miner ETF ratio is not available for this chain yet.</p>;
+  }
+  const band = ratio.band;
+  const outside = ratio.z != null && Math.abs(ratio.z) >= 1.5;
+  const rich = (ratio.z ?? 0) >= 1.5;
+  const read = outside
+    ? `${ratio.etfLabel} is ${rich ? "rich" : "cheap"} versus ${ratio.spotLabel}. The ratio sits ${Math.abs(ratio.gap ?? 0).toFixed(1)}% ${rich ? "above" : "below"} its last 60 sessions, ${ratio.z?.toFixed(1)}σ.`
+    : `${ratio.etfLabel} versus ${ratio.spotLabel} is inside a normal range${ratio.z == null ? "" : ` (${ratio.z.toFixed(1)}σ)`}. The dashed lines are 1.5 standard deviations.`;
+
+  return (
+    <div className="mt-4 border-t border-line pt-4">
+      <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
+        <div>
+          <p className="text-sm font-medium">
+            {ratio.spotLabel} and the {ratio.etfLabel} ratio
+          </p>
+          <p className="text-xs text-muted">
+            Left is the spot price. Right is how far {ratio.etf} divided by spot sits from its usual level. Zero is the last 60 sessions.
+          </p>
+        </div>
+        <p className={cn("font-mono text-sm tabular-nums", outside ? "text-warn" : "text-muted")}>
+          {ratio.gap == null ? "—" : `${ratio.gap > 0 ? "+" : ""}${ratio.gap.toFixed(1)}%`}
+          <span className="ml-2 text-xs">{outside ? (rich ? "Rich" : "Cheap") : "Usual"}</span>
+        </p>
+      </div>
+      <div className="h-72">
+        <ResponsiveContainer width="100%" height="100%">
+          <ComposedChart data={ratio.points} margin={{ top: 16, right: 8, left: 0, bottom: 0 }}>
+            <CartesianGrid stroke="var(--color-line)" vertical={false} />
+            <XAxis
+              dataKey="d"
+              tick={{ fill: "var(--color-subtle)", fontSize: 11 }}
+              minTickGap={28}
+              tickFormatter={(value: string) => value.slice(5)}
+            />
+            <YAxis yAxisId="spot" tick={{ fill: "var(--color-subtle)", fontSize: 11 }} width={52} domain={["auto", "auto"]} />
+            <YAxis
+              yAxisId="gap"
+              orientation="right"
+              tick={{ fill: "var(--color-subtle)", fontSize: 11 }}
+              width={44}
+              unit="%"
+              domain={[(dataMin: number) => Math.min(dataMin, -band * 1.2), (dataMax: number) => Math.max(dataMax, band * 1.2)]}
+            />
+            <Tooltip
+              {...tooltipStyle}
+              formatter={(value, name) => {
+                const number = Number(value);
+                if (name === "gap") return [`${number > 0 ? "+" : ""}${number.toFixed(1)}%`, "Vs usual"];
+                return [number.toLocaleString("en-US", { maximumFractionDigits: 2 }), ratio.spotLabel];
+              }}
+            />
+            <ReferenceLine yAxisId="gap" y={0} stroke="var(--color-muted)" strokeDasharray="3 3" />
+            <ReferenceLine
+              yAxisId="gap"
+              y={band}
+              stroke="var(--color-warn)"
+              strokeDasharray="5 4"
+              label={{ value: "Rich", fill: "var(--color-warn)", fontSize: 11, position: "insideTopRight" }}
+            />
+            <ReferenceLine
+              yAxisId="gap"
+              y={-band}
+              stroke="var(--color-warn)"
+              strokeDasharray="5 4"
+              label={{ value: "Cheap", fill: "var(--color-warn)", fontSize: 11, position: "insideBottomRight" }}
+            />
+            <Line yAxisId="spot" dataKey="spot" name="spot" stroke="var(--color-fg)" dot={false} strokeWidth={2} />
+            <Line yAxisId="gap" dataKey="gap" name="gap" stroke="var(--color-accent)" dot={false} strokeWidth={2} connectNulls />
+          </ComposedChart>
+        </ResponsiveContainer>
+      </div>
+      <p className="mt-3 text-sm text-muted">{read} Not a signal to trade.</p>
     </div>
   );
 }
