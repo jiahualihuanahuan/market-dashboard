@@ -59,6 +59,7 @@ function FrontierDesk({
   const chosen = mixWithinVol(model, cap);
   const risky = chosen.vol > model.maxSharpe.vol + 0.2;
   const dots = model.assets.map((asset, index) => ({ ...asset, label: model.labels[index] ?? "" }));
+  const spots = sweetSpots(model.frontier);
 
   return (
     <div className="grid gap-4">
@@ -102,10 +103,10 @@ function FrontierDesk({
       </Panel>
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(16rem,0.8fr)]">
-        <Panel title="Return versus bumpiness" kicker="Curve is the frontier. Dots are the five assets alone.">
-          <div className="h-80">
+        <Panel title="Return versus bumpiness" kicker="The line is the frontier. Spots on it are the best ratio with no volatility ceiling.">
+          <div className="h-96">
             <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart margin={{ top: 16, right: 12, left: 0, bottom: 8 }}>
+              <ComposedChart data={model.frontier} margin={{ top: 28, right: 16, left: 0, bottom: 8 }}>
                 <CartesianGrid stroke="var(--color-line)" vertical={false} />
                 <XAxis dataKey="vol" type="number" domain={[0, Math.ceil(ceiling)]} tickFormatter={(value) => `${value}%`} tick={{ fill: "var(--color-muted)", fontSize: 11 }} />
                 <YAxis dataKey="ret" type="number" tickFormatter={(value) => `${value}%`} tick={{ fill: "var(--color-muted)", fontSize: 11 }} width={48} />
@@ -118,17 +119,38 @@ function FrontierDesk({
                   }}
                 />
                 <ReferenceLine x={cap} stroke="var(--color-warn)" strokeDasharray="4 4" />
-                <Line data={model.frontier} dataKey="ret" name="Frontier" stroke="var(--color-accent)" dot={false} strokeWidth={2} />
+                <Line
+                  type="monotone"
+                  dataKey="ret"
+                  name="Frontier"
+                  stroke="var(--color-up)"
+                  strokeWidth={2.5}
+                  dot={{ r: 3, fill: "var(--color-up)", stroke: "var(--color-bg)", strokeWidth: 1 }}
+                  activeDot={{ r: 5 }}
+                  isAnimationActive={false}
+                />
                 <Scatter data={dots} dataKey="ret" name="Asset" fill="var(--color-fg)">
                   <LabelList dataKey="label" position="top" fill="var(--color-muted)" fontSize={11} />
                 </Scatter>
-                <Scatter data={[{ ...chosen, label: "Your mix" }]} dataKey="ret" name="Your mix" fill="var(--color-warn)" />
+                <Scatter data={spots} dataKey="ret" name="Sweet spot" shape={SweetDot}>
+                  <LabelList dataKey="label" position="top" fill="var(--color-fg)" fontSize={11} />
+                </Scatter>
+                <Scatter data={[{ ...chosen, label: "Your mix" }]} dataKey="ret" name="Your mix" fill="var(--color-down)" />
               </ComposedChart>
             </ResponsiveContainer>
           </div>
           <p className="mt-2 text-sm text-muted">
-            The dashed line is your volatility ceiling. Cash in the Sharpe ratio is the short-term Treasury fund's own return, {model.rf.toFixed(1)}% a year, so that fund's Sharpe is about zero.
+            The green line joins the mixes that earned the most for each level of bumpiness. The labeled spots sit on that line. They ignore the slider: each one is the highest reading of that ratio if you set no volatility ceiling. The red dot is the mix inside your ceiling. The dashed line is that ceiling. Cash for Sharpe is the Treasury fund's own return, {model.rf.toFixed(1)}% a year.
           </p>
+          <div className="mt-3 grid gap-2 sm:grid-cols-3">
+            {spots.map((spot) => (
+              <div key={spot.label} className="rounded-lg border border-line px-3 py-2">
+                <p className="text-xs text-muted">{spot.label}</p>
+                <p className="font-mono text-sm tabular-nums">{spot.detail}</p>
+                <p className="mt-1 text-xs text-muted">{spot.plain}</p>
+              </div>
+            ))}
+          </div>
         </Panel>
         <Panel title="Weights in the mix" kicker="Long only. They add up to 100%.">
           <div className="grid gap-3">
@@ -218,6 +240,58 @@ function FrontierDesk({
       </div>
     </div>
   );
+}
+
+function sweetSpots(frontier: MixPoint[]): Array<MixPoint & { label: string; color: string; detail: string; plain: string }> {
+  const specs = [
+    {
+      key: "sharpe" as const,
+      label: "Max Sharpe",
+      color: "var(--color-up)",
+      plain: "Most extra return over cash for each unit of bumpiness.",
+      detail: (point: MixPoint) => `Sharpe ${point.sharpe.toFixed(2)} · ${fmtPct(point.ret)} at ${point.vol.toFixed(1)}% vol`,
+    },
+    {
+      key: "sortino" as const,
+      label: "Max Sortino",
+      color: "var(--color-chart-3)",
+      plain: "Same idea as Sharpe, but only the losing days count against it.",
+      detail: (point: MixPoint) => `Sortino ${point.sortino.toFixed(2)} · ${fmtPct(point.ret)} at ${point.vol.toFixed(1)}% vol`,
+    },
+    {
+      key: "calmar" as const,
+      label: "Max Calmar",
+      color: "var(--color-warn)",
+      plain: "Most yearly return per unit of the worst peak-to-trough fall. A tiny fall can win this even when the gain is small.",
+      detail: (point: MixPoint) => `Calmar ${point.calmar == null ? "—" : point.calmar.toFixed(2)} · ${fmtPct(point.ret)} at ${point.vol.toFixed(1)}% vol`,
+    },
+  ];
+  const grouped = new Map<string, MixPoint & { label: string; color: string; detail: string; plain: string }>();
+  for (const spec of specs) {
+    const point = frontier.reduce<MixPoint | null>((best, row) => {
+      const value = row[spec.key];
+      if (value == null) return best;
+      if (!best) return row;
+      const bestValue = best[spec.key];
+      return bestValue == null || value > bestValue ? row : best;
+    }, null);
+    if (!point) continue;
+    const id = `${point.vol}-${point.ret}`;
+    const existing = grouped.get(id);
+    if (existing) {
+      existing.label = `${existing.label} and ${spec.label.replace("Max ", "")}`;
+      existing.detail = `${existing.detail}. ${spec.detail(point)}`;
+    } else {
+      grouped.set(id, { ...point, label: spec.label, color: spec.color, detail: spec.detail(point), plain: spec.plain });
+    }
+  }
+  return [...grouped.values()];
+}
+
+function SweetDot(props: unknown) {
+  const { cx, cy, payload } = props as { cx?: number; cy?: number; payload?: { color?: string } };
+  if (cx == null || cy == null) return <g />;
+  return <circle cx={cx} cy={cy} r={7} fill={payload?.color ?? "var(--color-warn)"} stroke="var(--color-bg)" strokeWidth={2} />;
 }
 
 function AssetRow({ label, asset }: { label: string; asset: MixPoint }) {
