@@ -81,6 +81,21 @@ export type ChainRatio = {
   points: RatioPoint[];
 };
 
+export type HeatCell = {
+  symbol: string;
+  d1: number | null;
+  w1: number | null;
+  m1: number | null;
+  y1: number | null;
+};
+
+export type Heatmap = {
+  index: string;
+  label: string;
+  listed: number;
+  cells: HeatCell[];
+};
+
 export type CnnPart = { id: string; score: number; rating: string };
 
 export type CnnFear = {

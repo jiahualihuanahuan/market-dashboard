@@ -30,6 +30,20 @@ export const getFedWatch = createServerFn({ method: "GET" })
     return loadFedWatch(data.fresh);
   });
 
+export const getHeatmap = createServerFn({ method: "GET" })
+  .validator((input: unknown) => {
+    const index = typeof input === "object" && input && "index" in input ? String((input as { index?: string }).index ?? "") : "";
+    const live = typeof input === "object" && input !== null && "live" in input
+      ? (input as { live?: boolean }).live === true
+      : false;
+    if (!/^\^[A-Z0-9.]+$/.test(index)) throw new Error("Pick an index.");
+    return { index, live };
+  })
+  .handler(async ({ data }) => {
+    const { loadHeatmap } = await import("./heatmap.server");
+    return loadHeatmap(data.index, data.live);
+  });
+
 export const getSmartMoney = createServerFn({ method: "GET" })
   .validator(freshFlag)
   .handler(async ({ data }) => {

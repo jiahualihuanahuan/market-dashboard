@@ -24,6 +24,18 @@ const INDEXES: Spec[] = [
 
 let memberCache: { at: number; lists: Map<string, string[]> } | null = null;
 
+export const HEAT_INDEXES: { symbol: string; label: string }[] = INDEXES.map((spec) => ({
+  symbol: spec.symbol,
+  label: spec.label,
+}));
+
+export async function membersOf(indexSymbol: string): Promise<{ label: string; symbols: string[] } | null> {
+  const spec = INDEXES.find((item) => item.symbol === indexSymbol);
+  if (!spec) return null;
+  const lists = await membership();
+  return { label: spec.label, symbols: lists.get(spec.symbol) ?? [] };
+}
+
 export async function loadIndexBreadth(): Promise<IndexBreadth[]> {
   const lists = await membership();
   const rows = await mapPool(INDEXES, 3, async (spec) => {
