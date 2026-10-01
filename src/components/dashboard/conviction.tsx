@@ -86,6 +86,9 @@ function Memo({ memo }: { memo: ConvictionMemo }) {
           <Points title="Bear" points={memo.bearPoints} />
         </div>
       </div>
+      <Panel title="Overview" kicker="Read against the numbered headlines">
+        <p className="max-w-3xl whitespace-pre-wrap text-sm leading-6">{memo.overview || "No overview returned."}</p>
+      </Panel>
       <Panel title="What would change it" kicker="Open questions and gaps">
         <ul className="grid gap-2 text-sm">
           {memo.openQuestions.concat(memo.notInSources).map((line) => <li key={line}>{line}</li>)}

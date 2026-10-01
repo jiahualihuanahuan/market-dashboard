@@ -41,6 +41,7 @@ export type ConvictionMemo = {
   conviction: number | null;
   stance: "constructive" | "mixed" | "cautious" | "unavailable";
   whatChanged: string;
+  overview: string;
   bullPoints: ConvictionPoint[];
   bearPoints: ConvictionPoint[];
   openQuestions: string[];
