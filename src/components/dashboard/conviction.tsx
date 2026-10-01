@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { getConviction, getOllama } from "@/lib/market/conviction.functions";
-import { TECH_UNIVERSE, type ConvictionMemo } from "@/lib/market/conviction";
+import { getConviction, getNews, getOllama } from "@/lib/market/conviction.functions";
+import { TECH_UNIVERSE, type ConvictionArticle, type ConvictionMemo } from "@/lib/market/conviction";
 import { Panel } from "@/components/dashboard/bits";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -13,10 +13,23 @@ export function ConvictionTab() {
   const [host, setHost] = useState(DEFAULT_HOST);
   const [model, setModel] = useState("qwen3:8b");
   const [memo, setMemo] = useState<ConvictionMemo | null>(null);
+  const [articles, setArticles] = useState<ConvictionArticle[]>([]);
+  const [status, setStatus] = useState("");
   const [probe, setProbe] = useState("");
   const run = useMutation({
-    mutationFn: (fresh: boolean) => getConviction({ data: { ticker, fresh, host, model } }),
-    onSuccess: setMemo,
+    mutationFn: async () => {
+      setStatus("Pulling headlines");
+      const news = await getNews({ data: { ticker } });
+      setArticles(news.articles);
+      if (!news.articles.length) throw new Error(news.error ?? "No headlines came back.");
+      setStatus(`Writing from ${news.articles.length} headlines. This can take a few minutes.`);
+      return getConviction({ data: { ticker, fresh: true, host, model } });
+    },
+    onSuccess: (next) => {
+      setMemo(next);
+      setArticles(next.articles.length ? next.articles : articles);
+      setStatus("");
+    },
   });
   const check = useMutation({
     mutationFn: () => getOllama({ data: { host, model } }),
@@ -42,8 +55,8 @@ export function ConvictionTab() {
           <Button variant="line" disabled={check.isPending} onClick={() => check.mutate()}>
             {check.isPending ? "Checking" : "Test Ollama"}
           </Button>
-          <Button disabled={run.isPending} onClick={() => run.mutate(true)}>
-            {run.isPending ? "Writing" : "Build conviction"}
+          <Button disabled={run.isPending} onClick={() => run.mutate()}>
+            {run.isPending ? "Working" : "Build conviction"}
           </Button>
         </div>
         <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -64,10 +77,28 @@ export function ConvictionTab() {
         </p>
         {probe ? <p className="mt-3 text-sm text-muted">{probe}</p> : null}
         {check.isError ? <p className="mt-3 text-sm text-down">{check.error instanceof Error ? check.error.message : "Check failed."}</p> : null}
-        {run.isError ? <p className="mt-3 text-sm text-down">{run.error instanceof Error ? run.error.message : "The note failed."}</p> : null}
+        {status ? <p className="mt-3 text-sm text-muted">{status}</p> : null}
+        {run.isError ? <p className="mt-3 text-sm text-down">{run.error instanceof Error ? run.error.message : "The note failed."} Headlines stay below if they already arrived.</p> : null}
       </Panel>
+      {articles.length ? <HeadlineList articles={articles} /> : null}
       {memo ? <Memo memo={memo} /> : null}
     </div>
+  );
+}
+
+
+function HeadlineList({ articles }: { articles: ConvictionArticle[] }) {
+  return (
+    <Panel title={`${articles.length} headlines`} kicker="These arrived before the model started">
+      <ul className="grid gap-3">
+        {articles.map((article, index) => (
+          <li key={article.id}>
+            <a className="text-sm font-medium hover:underline" href={article.url} target="_blank" rel="noreferrer">[{index + 1}] {article.title}</a>
+            <p className="font-mono text-xs text-muted">{article.source}{article.publishedAt ? ` · ${article.publishedAt}` : ""}</p>
+          </li>
+        ))}
+      </ul>
+    </Panel>
   );
 }
 

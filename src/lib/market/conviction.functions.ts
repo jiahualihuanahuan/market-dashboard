@@ -15,6 +15,20 @@ export const getOllama = createServerFn({ method: "POST" })
     return listModels(data.host);
   });
 
+
+export const getNews = createServerFn({ method: "POST" })
+  .validator((input: unknown) => {
+    const raw = typeof input === "object" && input && "ticker" in input ? String((input as { ticker?: string }).ticker ?? "") : "";
+    const ticker = raw.trim().toUpperCase();
+    if (!TECH_UNIVERSE.some((row) => row.ticker === ticker)) throw new Error("Pick a name on the list.");
+    return { ticker };
+  })
+  .handler(async ({ data }) => {
+    const { fetchTechNews } = await import("./conviction.server");
+    const articles = await fetchTechNews(data.ticker);
+    return { ticker: data.ticker, articles, error: articles.length ? null : "No headlines came back from Yahoo or Google News." };
+  });
+
 export const getConviction = createServerFn({ method: "POST" })
   .validator((input: unknown) => {
     const raw = typeof input === "object" && input && "ticker" in input ? String((input as { ticker?: string }).ticker ?? "") : "";
