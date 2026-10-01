@@ -13,6 +13,7 @@ import {
   LineChart,
   NotebookPen,
   PieChart,
+  ScrollText,
   Scale,
   Settings,
   ShieldAlert,
@@ -43,6 +44,7 @@ import { Macro } from "@/components/dashboard/macro";
 import { SettingsPanel } from "@/components/dashboard/settings-panel";
 import { LookthruApp } from "@/components/lookthru/app";
 import { ConvictionTab } from "@/components/dashboard/conviction";
+import { FilingsTab } from "@/components/dashboard/filings";
 
 const NAV: { id: TabId; label: string; icon: typeof LayoutDashboard }[] = [
   { id: "overview", label: "Overview", icon: LayoutDashboard },
@@ -61,10 +63,11 @@ const NAV: { id: TabId; label: string; icon: typeof LayoutDashboard }[] = [
   { id: "macro", label: "Macro", icon: CalendarDays },
   { id: "lookthru", label: "Lookthru", icon: Waypoints },
   { id: "conviction", label: "Conviction", icon: NotebookPen },
+  { id: "filings", label: "Filings", icon: ScrollText },
   { id: "settings", label: "Settings", icon: Settings },
 ];
 
-const SELF_CONTAINED = new Set<TabId>(["lookthru", "smart", "settings", "heatmap", "frontier", "flows", "options", "dark", "conviction"]);
+const SELF_CONTAINED = new Set<TabId>(["lookthru", "smart", "settings", "heatmap", "frontier", "flows", "options", "dark", "conviction", "filings"]);
 
 export function Desk() {
   const search = useSearch({ from: "/" });
@@ -185,6 +188,7 @@ export function Desk() {
           {data && search.tab === "macro" ? <Macro board={data} /> : null}
           {search.tab === "lookthru" ? <LookthruApp /> : null}
           {search.tab === "conviction" ? <ConvictionTab /> : null}
+          {search.tab === "filings" ? <FilingsTab /> : null}
           {search.tab === "settings" ? (
             ready ? <SettingsPanel /> : <p className="text-sm text-muted">Reading saved zones.</p>
           ) : null}
