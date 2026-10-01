@@ -28,4 +28,6 @@ docker compose down
 
 侧栏里的 **Lookthru** 把 ETF 拆成底层股票（和单独的 [Lookthru](https://github.com/jiahualihuanahuan/Lookthru) 同一套穿透）。持仓记在这台浏览器里。
 
+侧栏 **Conviction** 给主要科技股写备忘：服务端拉 Yahoo / Google News，再交给本机 Ollama。容器里访问模型要设 `OLLAMA_BASE`，见 `docker/env.example`。
+
 需求说明仍在 [docs/PROJECT_REQUIREMENTS.md](docs/PROJECT_REQUIREMENTS.md)。

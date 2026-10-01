@@ -14,6 +14,7 @@ export const TABS = [
   "sectors",
   "macro",
   "lookthru",
+  "conviction",
   "settings",
 ] as const;
 

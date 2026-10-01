@@ -34,7 +34,11 @@ docker compose down -v     # 停掉并删掉日志和自动生成的令牌
 TZ=America/Toronto
 CARE_AT=06:30
 HOST_PORT=8080
+OLLAMA_BASE=http://host.docker.internal:11434/v1
+CONVICTION_MODEL=qwen3:8b
 ```
+
+Conviction 页走的是宿主机上的 Ollama，不是容器里的 127.0.0.1。模型不在这台机器上时，把 `OLLAMA_BASE` 改成局域网地址，例如 `http://192.168.1.20:11434/v1`。
 
 ## 自动照顾
 
