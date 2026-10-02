@@ -53,13 +53,18 @@ function FrontierDesk({
   held: number | null;
   onHeld: (value: number) => void;
 }) {
-  const floor = model.calmest.vol;
-  const ceiling = model.frontier[model.frontier.length - 1]?.vol ?? model.maxSharpe.vol;
+  const frontierTop = model.frontier[model.frontier.length - 1]?.vol ?? model.maxSharpe.vol;
+  const widest = Math.max(frontierTop, ...model.assets.map((asset) => asset.vol));
+  const floor = 0;
+  const ceiling = Math.max(100, Math.ceil(widest / 10) * 10);
   const cap = clamp(held ?? model.maxSharpe.vol, floor, ceiling);
   const chosen = mixWithinVol(model, cap);
-  const risky = chosen.vol > model.maxSharpe.vol + 0.2;
+  const tooCalm = cap + 0.05 < model.calmest.vol;
+  const tooWild = cap > frontierTop + 0.05;
+  const risky = !tooWild && chosen.vol > model.maxSharpe.vol + 0.2;
   const dots = model.assets.map((asset, index) => ({ ...asset, label: model.labels[index] ?? "" }));
   const spots = sweetSpots(model.frontier);
+  const chartMax = Math.ceil(Math.max(widest, cap) + 1);
 
   return (
     <div className="grid gap-4">
@@ -86,11 +91,16 @@ function FrontierDesk({
           />
         </label>
         <p className="mt-2 text-sm text-muted">
-          {risky
-            ? "This is bumpier than the best reward-for-risk mix. You are paying for extra return with a rougher ride, and the Sharpe ratio falls."
-            : Math.abs(chosen.vol - model.maxSharpe.vol) < 0.8
-              ? "This is the best reward-for-risk mix in the sample, or the closest one still under your ceiling. Sharpe is the extra return over cash divided by volatility."
-              : "Under this ceiling the mix holds more bills. It is smoother, and it gives up return. Sharpe stays similar until you pass the best point."}
+          The slider runs from 0% to {ceiling.toFixed(0)}%, past every asset here. The riskiest one is about {widest.toFixed(0)}% a year. A long-only mix cannot be bumpier than its bumpiest holding.
+          {tooCalm
+            ? ` This ceiling is calmer than the model can build. No holding can exceed ${model.weightCap.toFixed(0)}%, so the calmest mix still lands at ${model.calmest.vol.toFixed(1)}%.`
+            : tooWild
+              ? ` Above ${frontierTop.toFixed(1)}% the mix does not get bumpier. The ${model.weightCap.toFixed(0)}% cap already uses the highest-return mix the rules allow.`
+              : risky
+                ? " This is bumpier than the best reward-for-risk mix. You are paying for extra return with a rougher ride, and the Sharpe ratio falls."
+                : Math.abs(chosen.vol - model.maxSharpe.vol) < 0.8
+                  ? " This is the best reward-for-risk mix in the sample, or the closest one still under your ceiling. Sharpe is the extra return over cash divided by volatility."
+                  : " Under this ceiling the mix holds more bills. It is smoother, and it gives up return. Sharpe stays similar until you pass the best point."}
         </p>
         <div className="mt-4 grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
           <Stat label="Expected return" value={fmtPct(chosen.ret)} plain="Corrected yearly gain used by the curve. Not the past average, and not a promise." />
@@ -143,7 +153,7 @@ function FrontierDesk({
             <ResponsiveContainer width="100%" height="100%">
               <ComposedChart data={model.frontier} margin={{ top: 28, right: 16, left: 0, bottom: 8 }}>
                 <CartesianGrid stroke="var(--color-line)" vertical={false} />
-                <XAxis dataKey="vol" type="number" domain={[0, Math.ceil(ceiling)]} tickFormatter={(value) => `${value}%`} tick={{ fill: "var(--color-muted)", fontSize: 11 }} />
+                <XAxis dataKey="vol" type="number" domain={[0, chartMax]} tickFormatter={(value) => `${value}%`} tick={{ fill: "var(--color-muted)", fontSize: 11 }} />
                 <YAxis dataKey="ret" type="number" tickFormatter={(value) => `${value}%`} tick={{ fill: "var(--color-muted)", fontSize: 11 }} width={48} />
                 <Tooltip
                   {...tooltipStyle}
