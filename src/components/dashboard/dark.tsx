@@ -1,22 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Bar, BarChart, CartesianGrid, Cell, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { getDark } from "@/lib/market/board.functions";
 import { avgSize, darkShare, latestOf, priorOf, type DarkBook, type DarkRow } from "@/lib/market/dark";
 import { fmtCompact, fmtPct } from "@/lib/market/format";
 import { Panel, tooltipStyle } from "@/components/dashboard/bits";
-import { cn } from "@/lib/utils";
-
-const GLOSSARY: [string, string][] = [
-  ["Dark pool", "A private venue, an ATS, where the order is not shown on the public exchange book. Other people cannot see it sitting there. The trade still prints afterward."],
-  ["ATS", "Alternative trading system. This is the regulatory name for a dark pool. The weekly dollars in the main table are ATS prints only."],
-  ["Off-exchange", "Any trade that did not happen on an exchange. That includes dark pools and brokers filling a customer's order from their own stock."],
-  ["Wholesaler", "A broker that pays to take a customer's order and fills it internally. That volume is off-exchange, but it is not a dark pool. It sits in the other-off-exchange column."],
-  ["ATS share", "Dark-pool dollars divided by all off-exchange dollars. A high share means the hidden tape was mostly a dark pool. A low share means most of it was not."],
-  ["Average print", "ATS shares divided by the number of ATS trades. Modern dark pools slice orders, so this is often under a hundred shares even in SPY. Bigger is only a hint of larger orders."],
-  ["Tier 1", "FINRA's list of large names: S&P 500, Russell 1000, and selected ETFs. Smaller stocks are a different file and are not in this table."],
-  ["Short share", "On the daily tape only: off-exchange shares marked as a short sale. It is not dark-pool volume, and a high number is not by itself a reason to buy or sell."],
-];
 
 export function DarkTab() {
   const liveRef = useRef(false);
@@ -46,14 +34,41 @@ export function DarkTab() {
 function DarkDesk({ book }: { book: DarkBook }) {
   const [symbol, setSymbol] = useState("SPY");
   const [query, setQuery] = useState("");
-  const [sort, setSort] = useState<"dollars" | "share" | "size" | "change">("dollars");
   const week = book.weeks[book.weeks.length - 1] ?? "";
-  const prior = book.weeks.length >= 2 ? book.weeks[book.weeks.length - 2] : "";
   const selected = book.rows.find((row) => row.symbol === symbol) ?? book.rows[0];
-  const stats = useMemo(() => summarize(book.rows), [book.rows]);
-  const ranked = useMemo(() => rankRows(book.rows, query, sort), [book.rows, query, sort]);
-  const shown = ranked.slice(0, query.trim() ? 40 : 25);
-  const leaders = book.rows.slice(0, 12).map((row) => ({ symbol: row.symbol, dollars: latestOf(row) }));
+  const needle = query.trim().toUpperCase();
+  const rows = useMemo(
+    () => (needle ? book.rows.filter((row) => row.symbol.includes(needle) || row.name.toUpperCase().includes(needle)) : book.rows),
+    [book.rows, needle],
+  );
+  const leaders = useMemo(
+    () => rows.slice().sort((a, b) => latestOf(b) - latestOf(a)).slice(0, 15).map((row) => ({ symbol: row.symbol, dollars: latestOf(row) })),
+    [rows],
+  );
+  const movers = useMemo(() => {
+    return rows
+      .map((row) => ({ symbol: row.symbol, change: changePct(row) }))
+      .filter((row): row is { symbol: string; change: number } => row.change != null)
+      .sort((a, b) => Math.abs(b.change) - Math.abs(a.change))
+      .slice(0, 15)
+      .sort((a, b) => b.change - a.change);
+  }, [rows]);
+  const split = useMemo(
+    () => rows
+      .filter((row) => row.otherNotional != null)
+      .map((row) => ({ symbol: row.symbol, dark: latestOf(row), other: row.otherNotional ?? 0 }))
+      .sort((a, b) => b.dark + b.other - (a.dark + a.other))
+      .slice(0, 12),
+    [rows],
+  );
+  const sizes = useMemo(
+    () => rows
+      .filter((row) => row.trades > 0)
+      .map((row) => ({ symbol: row.symbol, size: Math.round(avgSize(row)) }))
+      .sort((a, b) => b.size - a.size)
+      .slice(0, 12),
+    [rows],
+  );
   const series = selected
     ? book.weeks.map((item, index) => ({ week: shortDate(item), dollars: selected.notional[index] ?? 0 }))
     : [];
@@ -61,69 +76,109 @@ function DarkDesk({ book }: { book: DarkBook }) {
     week: shortDate(item),
     dollars: book.rows.reduce((sum, row) => sum + (row.notional[index] ?? 0), 0),
   }));
+  const dailyDollars = (book.daily?.rows ?? [])
+    .filter((row) => !needle || row.symbol.includes(needle))
+    .slice()
+    .sort((a, b) => (b.dollars ?? 0) - (a.dollars ?? 0))
+    .slice(0, 15)
+    .map((row) => ({ symbol: row.symbol, dollars: row.dollars ?? 0 }));
+  const dailyShort = (book.daily?.rows ?? [])
+    .filter((row) => row.shortPct != null && (!needle || row.symbol.includes(needle)))
+    .slice()
+    .sort((a, b) => (b.shortPct ?? 0) - (a.shortPct ?? 0))
+    .slice(0, 15)
+    .map((row) => ({ symbol: row.symbol, short: row.shortPct ?? 0 }));
 
   return (
     <div className="grid min-w-0 gap-4">
       <Panel className="min-w-0" title="Hidden trades, counted late" kicker={`Week starting ${longDate(week)} · published ${longDate(book.published)}`}>
         <p className="max-w-3xl text-sm text-muted">
-          A dark pool is a private venue. The order is not posted on the public book, so nobody can see it waiting. FINRA adds up those prints by ticker and releases them about two to three weeks later. This page is that file for large US names. It is not a live tape, and it is not a forecast.
+          A dark pool is a private venue. The order is not posted on the public book. FINRA adds those prints up by ticker and releases them about two to three weeks later. Off-exchange is wider: it also includes a broker filling a customer from its own inventory. Click a bar to open that name. Dollars, not share count, so a cheap stock does not float to the top just by trading a lot of pieces.
         </p>
-        <p className="mt-3 max-w-3xl text-sm text-muted">
-          Off-exchange is wider than a dark pool. It also includes brokers who fill a customer's order from their own inventory. The ATS share column splits those two. Average print size is usually small now, because venues slice big orders into little pieces. SPY's typical ATS print in this file is about {stats.spySize ? `${Math.round(stats.spySize)} shares` : "under 100 shares"}.
-        </p>
-        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <Stat label="Tier 1 dark-pool dollars" value={money(stats.total)} detail={`Week of ${shortDate(week)}`} />
-          <Stat label="Versus the prior week" value={fmtPct(stats.change)} detail={prior ? `Prior week ${shortDate(prior)}` : "No prior week"} />
-          <Stat label="Top 10 share of those dollars" value={stats.top10 == null ? "—" : `${stats.top10.toFixed(0)}%`} detail="How concentrated the hidden tape is" />
-          <Stat label="Typical ATS share" value={stats.medianShare == null ? "—" : `${stats.medianShare.toFixed(0)}%`} detail="Median dark-pool share of off-exchange dollars" />
-        </div>
+        <input
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Filter by ticker or name"
+          aria-label="Filter dark-pool charts"
+          className="mt-3 h-11 w-full max-w-xs rounded-md border border-line bg-bg px-3 text-sm"
+        />
       </Panel>
 
-      {book.flags.length ? (
-        <Panel className="min-w-0" title="What stands out" kicker="Descriptions, not instructions">
-          <ul className="grid gap-2 lg:grid-cols-2">
-            {book.flags.map((flag) => (
-              <li key={`${flag.symbol}-${flag.label}`}>
-                <button
-                  type="button"
-                  onClick={() => setSymbol(flag.symbol)}
-                  className="flex min-h-11 w-full flex-col items-start rounded-md border border-line px-3 py-2 text-left hover:bg-elevated"
-                >
-                  <span className="font-mono text-sm">{flag.symbol} <span className="text-muted">{flag.label}</span></span>
-                  <span className="text-sm text-muted">{flag.detail}</span>
-                </button>
-              </li>
-            ))}
-          </ul>
+      <div className="grid min-w-0 gap-4 lg:grid-cols-2">
+        <Panel className="min-w-0" title="Largest dark-pool dollars" kicker="This week · click a bar">
+          <p className="mb-2 text-xs text-muted">Hidden venue dollars only. Not the public exchange, and not a broker filling from its own stock.</p>
+          <HBars>
+            <BarChart data={leaders} layout="vertical" margin={{ top: 4, right: 8, left: 8, bottom: 0 }}>
+              <CartesianGrid stroke="var(--color-line)" horizontal={false} />
+              <XAxis type="number" tickFormatter={(value) => fmtCompact(Number(value))} tick={{ fill: "var(--color-muted)", fontSize: 11 }} />
+              <YAxis type="category" dataKey="symbol" width={52} tick={{ fill: "var(--color-fg)", fontSize: 11 }} />
+              <Tooltip {...tooltipStyle} formatter={(value) => [money(typeof value === "number" ? value : null), "Dark-pool dollars"]} />
+              <Bar dataKey="dollars" isAnimationActive={false} onClick={(state) => pick(state, setSymbol)}>
+                {leaders.map((row) => (
+                  <Cell key={row.symbol} fill={row.symbol === selected?.symbol ? "var(--color-fg)" : "var(--color-muted)"} cursor="pointer" />
+                ))}
+              </Bar>
+            </BarChart>
+          </HBars>
         </Panel>
-      ) : null}
+
+        <Panel className="min-w-0" title="Change from the prior week" kicker="Biggest swings, either way">
+          <p className="mb-2 text-xs text-muted">How much dark-pool dollars rose or fell versus the week before. Green is more hidden dollars. Red is fewer.</p>
+          <HBars>
+            <BarChart data={movers} layout="vertical" margin={{ top: 4, right: 8, left: 8, bottom: 0 }}>
+              <CartesianGrid stroke="var(--color-line)" horizontal={false} />
+              <XAxis type="number" tickFormatter={(value) => `${Number(value).toFixed(0)}%`} tick={{ fill: "var(--color-muted)", fontSize: 11 }} />
+              <YAxis type="category" dataKey="symbol" width={52} tick={{ fill: "var(--color-fg)", fontSize: 11 }} />
+              <Tooltip {...tooltipStyle} formatter={(value) => [fmtPct(typeof value === "number" ? value : null), "Versus prior week"]} />
+              <Bar dataKey="change" isAnimationActive={false} onClick={(state) => pick(state, setSymbol)}>
+                {movers.map((row) => (
+                  <Cell key={row.symbol} fill={row.change >= 0 ? "var(--color-up)" : "var(--color-down)"} cursor="pointer" />
+                ))}
+              </Bar>
+            </BarChart>
+          </HBars>
+        </Panel>
+
+        <Panel className="min-w-0" title="Dark pool versus the rest" kicker="Of all off-exchange dollars">
+          <p className="mb-2 text-xs text-muted">The first color is the dark pool. The second is other off-exchange, mostly a broker filling from its own inventory. A long second bar means most of the hidden tape was not a dark pool.</p>
+          <HBars>
+            <BarChart data={split} layout="vertical" margin={{ top: 4, right: 8, left: 8, bottom: 0 }}>
+              <CartesianGrid stroke="var(--color-line)" horizontal={false} />
+              <XAxis type="number" tickFormatter={(value) => fmtCompact(Number(value))} tick={{ fill: "var(--color-muted)", fontSize: 11 }} />
+              <YAxis type="category" dataKey="symbol" width={52} tick={{ fill: "var(--color-fg)", fontSize: 11 }} />
+              <Tooltip {...tooltipStyle} formatter={(value, name) => [money(typeof value === "number" ? value : null), name === "dark" ? "Dark pool" : "Other off-exchange"]} />
+              <Bar dataKey="dark" stackId="off" fill="var(--color-fg)" isAnimationActive={false} onClick={(state) => pick(state, setSymbol)} />
+              <Bar dataKey="other" stackId="off" fill="var(--color-line)" isAnimationActive={false} onClick={(state) => pick(state, setSymbol)} />
+            </BarChart>
+          </HBars>
+        </Panel>
+
+        <Panel className="min-w-0" title="Average hidden print" kicker="Shares per dark-pool trade">
+          <p className="mb-2 text-xs text-muted">Venues slice big orders into little pieces, so this is often under a hundred shares even in SPY. A taller bar is only a hint of larger orders.</p>
+          <HBars>
+            <BarChart data={sizes} layout="vertical" margin={{ top: 4, right: 8, left: 8, bottom: 0 }}>
+              <CartesianGrid stroke="var(--color-line)" horizontal={false} />
+              <XAxis type="number" tickFormatter={(value) => fmtCompact(Number(value))} tick={{ fill: "var(--color-muted)", fontSize: 11 }} />
+              <YAxis type="category" dataKey="symbol" width={52} tick={{ fill: "var(--color-fg)", fontSize: 11 }} />
+              <Tooltip {...tooltipStyle} formatter={(value) => [typeof value === "number" ? `${Math.round(value).toLocaleString("en-US")} shares` : "—", "Average print"]} />
+              <Bar dataKey="size" fill="var(--color-muted)" isAnimationActive={false} onClick={(state) => pick(state, setSymbol)} />
+            </BarChart>
+          </HBars>
+        </Panel>
+      </div>
 
       <div className="grid min-w-0 gap-4 lg:grid-cols-2">
-        <Panel className="min-w-0" title="Largest dark-pool dollars" kicker="Top 12 names this week">
-          <p className="mb-2 text-xs text-muted">Dollars, not shares. A cheap stock can print a huge share count and still be a small trade.</p>
-          <div className="h-72">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={leaders} layout="vertical" margin={{ top: 4, right: 8, left: 8, bottom: 0 }}>
-                <CartesianGrid stroke="var(--color-line)" horizontal={false} />
-                <XAxis type="number" tickFormatter={(value) => fmtCompact(Number(value))} tick={{ fill: "var(--color-muted)", fontSize: 11 }} />
-                <YAxis type="category" dataKey="symbol" width={52} tick={{ fill: "var(--color-fg)", fontSize: 11 }} />
-                <Tooltip {...tooltipStyle} formatter={(value) => [money(typeof value === "number" ? value : null), "ATS dollars"]} />
-                <Bar dataKey="dollars" fill="var(--color-muted)" isAnimationActive={false} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </Panel>
-        <Panel className="min-w-0" title={selected ? `${selected.symbol} dark-pool dollars` : "One name"} kicker={selected?.name ?? "Pick a row"}>
+        <Panel className="min-w-0" title={selected ? `${selected.symbol} over the last weeks` : "One name"} kicker={selected?.name ?? "Click a bar"}>
           {selected ? (
             <>
               <p className="mb-2 text-sm text-muted">{sentence(selected, week)}</p>
-              <div className="h-64">
+              <div className="h-72">
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={series} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
                     <CartesianGrid stroke="var(--color-line)" vertical={false} />
                     <XAxis dataKey="week" tick={{ fill: "var(--color-muted)", fontSize: 11 }} />
                     <YAxis tickFormatter={(value) => fmtCompact(Number(value))} tick={{ fill: "var(--color-muted)", fontSize: 11 }} width={56} />
-                    <Tooltip {...tooltipStyle} formatter={(value) => [money(typeof value === "number" ? value : null), "ATS dollars"]} />
+                    <Tooltip {...tooltipStyle} formatter={(value) => [money(typeof value === "number" ? value : null), "Dark-pool dollars"]} />
                     <Line type="monotone" dataKey="dollars" stroke="var(--color-fg)" strokeWidth={2} dot={false} isAnimationActive={false} />
                   </LineChart>
                 </ResponsiveContainer>
@@ -133,170 +188,80 @@ function DarkDesk({ book }: { book: DarkBook }) {
             <p className="text-sm text-muted">No names came back.</p>
           )}
         </Panel>
+        <Panel className="min-w-0" title="All large names together" kicker="Dark-pool dollars each week">
+          <p className="mb-2 text-xs text-muted">The same set of large US names, added up. This is the weekly file, so the latest bar is already a couple of weeks old.</p>
+          <div className="h-72">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={market} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                <CartesianGrid stroke="var(--color-line)" vertical={false} />
+                <XAxis dataKey="week" tick={{ fill: "var(--color-muted)", fontSize: 11 }} />
+                <YAxis tickFormatter={(value) => fmtCompact(Number(value))} tick={{ fill: "var(--color-muted)", fontSize: 11 }} width={56} />
+                <Tooltip {...tooltipStyle} formatter={(value) => [money(typeof value === "number" ? value : null), "Dark-pool dollars"]} />
+                <Bar dataKey="dollars" fill="var(--color-muted)" isAnimationActive={false} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </Panel>
       </div>
 
-      <Panel className="min-w-0" title="Tier 1 dark-pool dollars" kicker="Same set of large names, each week">
-        <div className="h-56">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={market} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-              <CartesianGrid stroke="var(--color-line)" vertical={false} />
-              <XAxis dataKey="week" tick={{ fill: "var(--color-muted)", fontSize: 11 }} />
-              <YAxis tickFormatter={(value) => fmtCompact(Number(value))} tick={{ fill: "var(--color-muted)", fontSize: 11 }} width={56} />
-              <Tooltip {...tooltipStyle} formatter={(value) => [money(typeof value === "number" ? value : null), "ATS dollars"]} />
-              <Bar dataKey="dollars" fill="var(--color-muted)" isAnimationActive={false} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      </Panel>
-
-      <Panel
-        className="min-w-0"
-        title="Top tickers"
-        kicker={`${book.rows.length.toLocaleString("en-US")} names · showing ${shown.length}`}
-        action={
-          <input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Ticker or name"
-            aria-label="Search dark-pool names"
-            className="h-11 w-40 rounded-md border border-line bg-bg px-3 text-sm"
-          />
-        }
-      >
-        <div className="max-w-full overflow-x-auto">
-          <table className="w-full min-w-[44rem] text-left text-sm">
-            <thead className="text-xs text-muted">
-              <tr>
-                <th className="px-2 py-2 font-medium">Ticker</th>
-                <SortHead label="ATS dollars" on={sort === "dollars"} onClick={() => setSort("dollars")} />
-                <th className="px-2 py-2 font-medium">Shares</th>
-                <SortHead label="Avg print" on={sort === "size"} onClick={() => setSort("size")} />
-                <SortHead label="ATS share" on={sort === "share"} onClick={() => setSort("share")} />
-                <SortHead label="Vs prior week" on={sort === "change"} onClick={() => setSort("change")} />
-              </tr>
-            </thead>
-            <tbody>
-              {shown.map((row) => {
-                const share = darkShare(row);
-                const change = changePct(row);
-                return (
-                  <tr
-                    key={row.symbol}
-                    onClick={() => setSymbol(row.symbol)}
-                    className={cn("cursor-pointer border-t border-line", row.symbol === selected?.symbol ? "bg-elevated" : "hover:bg-surface")}
-                  >
-                    <td className="px-2 py-3">
-                      <span className="font-mono">{row.symbol}</span>
-                      <span className="mt-0.5 block max-w-56 truncate text-xs text-muted">{row.name}</span>
-                    </td>
-                    <td className="px-2 py-3 font-mono tabular-nums">{money(latestOf(row))}</td>
-                    <td className="px-2 py-3 font-mono tabular-nums">{fmtCompact(row.shares[row.shares.length - 1] ?? 0)}</td>
-                    <td className="px-2 py-3 font-mono tabular-nums">{row.trades > 0 ? Math.round(avgSize(row)).toLocaleString("en-US") : "—"}</td>
-                    <td className="px-2 py-3 font-mono tabular-nums">{share == null ? "—" : `${share.toFixed(0)}%`}</td>
-                    <td className={cn("px-2 py-3 font-mono tabular-nums", change == null ? "text-muted" : change >= 0 ? "text-up" : "text-down")}>{fmtPct(change)}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-        <p className="mt-3 max-w-3xl text-xs text-muted">{book.note}</p>
-      </Panel>
-
-      <Panel className="min-w-0" title="Newer off-exchange tape" kicker={book.daily ? `FINRA TRF · ${longDate(book.daily.asOf)}` : "Daily file missing"}>
-        {book.daily ? (
-          <>
-            <p className="max-w-3xl text-sm text-muted">
-              This file is only a day or two old, but it does not split dark pools from wholesalers. It is every share reported to FINRA's off-exchange tape. Dollars are those shares times the latest close, so a low-priced stock does not rise to the top just by trading a lot of pieces. The whole tape that day was {fmtCompact(book.daily.offShares)} shares{book.daily.shortPct == null ? "" : `, and ${book.daily.shortPct.toFixed(0)}% of them were marked short`}. A high short share is a label on the trade, not a dark pool and not a forecast.
-            </p>
-            <div className="mt-3 max-w-full overflow-x-auto">
-              <table className="w-full min-w-[36rem] text-left text-sm">
-                <thead className="text-xs text-muted">
-                  <tr>
-                    <th className="px-2 py-2 font-medium">Ticker</th>
-                    <th className="px-2 py-2 font-medium">Off-exchange $</th>
-                    <th className="px-2 py-2 font-medium">Shares</th>
-                    <th className="px-2 py-2 font-medium">Short share</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {book.daily.rows.map((row) => (
-                    <tr key={row.symbol} className="border-t border-line">
-                      <td className="px-2 py-3 font-mono">{row.symbol}</td>
-                      <td className="px-2 py-3 font-mono tabular-nums">{money(row.dollars)}</td>
-                      <td className="px-2 py-3 font-mono tabular-nums">{fmtCompact(row.offShares)}</td>
-                      <td className="px-2 py-3 font-mono tabular-nums">{row.shortPct == null ? "—" : `${row.shortPct.toFixed(0)}%`}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </>
-        ) : (
-          <p className="text-sm text-muted">The daily off-exchange file did not load. The weekly dark-pool table above is still the ATS file.</p>
-        )}
-      </Panel>
-
-      <Panel className="min-w-0" title="What the words mean" kicker="Plain English">
-        <dl className="grid gap-3 sm:grid-cols-2">
-          {GLOSSARY.map(([term, meaning]) => (
-            <div key={term} className="rounded-lg border border-line px-3 py-2">
-              <dt className="text-sm font-medium">{term}</dt>
-              <dd className="mt-1 text-sm text-muted">{meaning}</dd>
-            </div>
-          ))}
-        </dl>
-      </Panel>
+      <div className="grid min-w-0 gap-4 lg:grid-cols-2">
+        <Panel className="min-w-0" title="Newer off-exchange dollars" kicker={book.daily ? `A day or two old · ${longDate(book.daily.asOf)}` : "Daily file missing"}>
+          {book.daily ? (
+            <>
+              <p className="mb-2 text-xs text-muted">
+                Fresher than the weekly file, but it does not split dark pools from brokers. The whole tape that day was {fmtCompact(book.daily.offShares)} shares.
+              </p>
+              <HBars>
+                <BarChart data={dailyDollars} layout="vertical" margin={{ top: 4, right: 8, left: 8, bottom: 0 }}>
+                  <CartesianGrid stroke="var(--color-line)" horizontal={false} />
+                  <XAxis type="number" tickFormatter={(value) => fmtCompact(Number(value))} tick={{ fill: "var(--color-muted)", fontSize: 11 }} />
+                  <YAxis type="category" dataKey="symbol" width={52} tick={{ fill: "var(--color-fg)", fontSize: 11 }} />
+                  <Tooltip {...tooltipStyle} formatter={(value) => [money(typeof value === "number" ? value : null), "Off-exchange dollars"]} />
+                  <Bar dataKey="dollars" fill="var(--color-muted)" isAnimationActive={false} onClick={(state) => pick(state, setSymbol)} />
+                </BarChart>
+              </HBars>
+            </>
+          ) : (
+            <p className="text-sm text-muted">The daily off-exchange file did not load. The weekly charts above are still the dark-pool file.</p>
+          )}
+        </Panel>
+        <Panel className="min-w-0" title="Share marked short" kicker="Same newer tape, not a dark pool">
+          {book.daily ? (
+            <>
+              <p className="mb-2 text-xs text-muted">
+                The percent of those off-exchange shares marked as a short sale.{book.daily.shortPct == null ? "" : ` The whole tape was ${book.daily.shortPct.toFixed(0)}%.`} A high number is a label on the trade, not a forecast.
+              </p>
+              <HBars>
+                <BarChart data={dailyShort} layout="vertical" margin={{ top: 4, right: 8, left: 8, bottom: 0 }}>
+                  <CartesianGrid stroke="var(--color-line)" horizontal={false} />
+                  <XAxis type="number" tickFormatter={(value) => `${Number(value).toFixed(0)}%`} tick={{ fill: "var(--color-muted)", fontSize: 11 }} />
+                  <YAxis type="category" dataKey="symbol" width={52} tick={{ fill: "var(--color-fg)", fontSize: 11 }} />
+                  <Tooltip {...tooltipStyle} formatter={(value) => [typeof value === "number" ? `${value.toFixed(0)}%` : "—", "Marked short"]} />
+                  <Bar dataKey="short" fill="var(--color-down)" isAnimationActive={false} onClick={(state) => pick(state, setSymbol)} />
+                </BarChart>
+              </HBars>
+            </>
+          ) : (
+            <p className="text-sm text-muted">No daily tape, so there is no short-share chart.</p>
+          )}
+        </Panel>
+      </div>
+      <p className="text-xs text-muted">{book.note}</p>
     </div>
   );
 }
 
-function SortHead({ label, on, onClick }: { label: string; on: boolean; onClick: () => void }) {
+function HBars({ children }: { children: ReactElement }) {
   return (
-    <th className="px-2 py-2 font-medium">
-      <button type="button" onClick={onClick} className={cn("min-h-11 text-left", on ? "text-fg" : "text-muted")}>
-        {label}
-      </button>
-    </th>
-  );
-}
-
-function Stat({ label, value, detail }: { label: string; value: string; detail: string }) {
-  return (
-    <div className="rounded-lg border border-line px-3 py-2">
-      <p className="text-xs text-muted">{label}</p>
-      <p className="mt-1 font-mono text-lg tabular-nums">{value}</p>
-      <p className="text-xs text-muted">{detail}</p>
+    <div className="h-80">
+      <ResponsiveContainer width="100%" height="100%">{children}</ResponsiveContainer>
     </div>
   );
 }
 
-function summarize(rows: DarkRow[]) {
-  const total = rows.reduce((sum, row) => sum + latestOf(row), 0);
-  const prev = rows.reduce((sum, row) => sum + priorOf(row), 0);
-  const top10 = total > 0 ? (rows.slice(0, 10).reduce((sum, row) => sum + latestOf(row), 0) / total) * 100 : null;
-  const shares = rows.map((row) => darkShare(row)).filter((value): value is number => value != null).sort((a, b) => a - b);
-  const spy = rows.find((row) => row.symbol === "SPY");
-  return {
-    total,
-    change: prev > 0 ? ((total - prev) / prev) * 100 : null,
-    top10,
-    medianShare: shares.length ? shares[Math.floor(shares.length / 2)] : null,
-    spySize: spy && spy.trades > 0 ? avgSize(spy) : null,
-  };
-}
-
-function rankRows(rows: DarkRow[], query: string, sort: "dollars" | "share" | "size" | "change"): DarkRow[] {
-  const needle = query.trim().toUpperCase();
-  const filtered = needle
-    ? rows.filter((row) => row.symbol.includes(needle) || row.name.toUpperCase().includes(needle))
-    : rows;
-  const copy = [...filtered];
-  if (sort === "share") copy.sort((a, b) => (darkShare(b) ?? -1) - (darkShare(a) ?? -1));
-  else if (sort === "size") copy.sort((a, b) => avgSize(b) - avgSize(a));
-  else if (sort === "change") copy.sort((a, b) => (changePct(b) ?? -1e9) - (changePct(a) ?? -1e9));
-  else copy.sort((a, b) => latestOf(b) - latestOf(a));
-  return copy;
+function pick(state: unknown, setSymbol: (symbol: string) => void) {
+  const symbol = (state as { symbol?: string } | null)?.symbol;
+  if (symbol) setSymbol(symbol);
 }
 
 function changePct(row: DarkRow): number | null {
@@ -310,7 +275,7 @@ function sentence(row: DarkRow, week: string): string {
   const size = row.trades > 0 ? Math.round(avgSize(row)).toLocaleString("en-US") : null;
   const change = changePct(row);
   const shareText = share == null
-    ? "FINRA did not publish the matching non-ATS file for this name."
+    ? "FINRA did not publish the matching non-dark-pool file for this name."
     : `${share.toFixed(0)}% of its off-exchange dollars were on a dark pool, and the rest were not.`;
   const changeText = change == null ? "" : ` That is ${fmtPct(change)} versus the prior week.`;
   return `${row.symbol} had ${money(latestOf(row))} of dark-pool prints in the week of ${shortDate(week)}.${changeText} ${shareText}${size ? ` The average hidden print was ${size} shares.` : ""}`;
