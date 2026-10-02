@@ -58,7 +58,9 @@ export function trail(dates: string[], sector: number[], benchmark: number[], da
     if (!Number.isFinite(row.ratio) || !Number.isFinite(row.momentum)) continue;
     finite.push({ d: dates[i], ratio: round(row.ratio), momentum: round(row.momentum) });
   }
-  return sample(finite.slice(-days), 14);
+  const windowed = finite.slice(-days);
+  if (windowed.length < 2) return windowed;
+  return [windowed[0], windowed[windowed.length - 1]];
 }
 
 export function quadrant(ratio: number, momentum: number): "Leading" | "Weakening" | "Lagging" | "Improving" {
@@ -102,20 +104,6 @@ function wma(values: number[], period: number): (number | null)[] {
       sum += value * (period - k);
     }
     if (ok) out[i] = sum / denom;
-  }
-  return out;
-}
-
-function sample<T>(rows: T[], count: number): T[] {
-  if (rows.length <= count) return rows;
-  const out: T[] = [];
-  const step = (rows.length - 1) / (count - 1);
-  const seen = new Set<number>();
-  for (let i = 0; i < count; i += 1) {
-    const index = i === count - 1 ? rows.length - 1 : Math.round(i * step);
-    if (seen.has(index)) continue;
-    seen.add(index);
-    out.push(rows[index]);
   }
   return out;
 }

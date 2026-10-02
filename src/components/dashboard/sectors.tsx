@@ -111,9 +111,9 @@ function Rotation() {
             </p>
             <StrengthChart book={book} days={span.days} focus={focus} onFocus={setFocus} />
           </Panel>
-          <Panel title="Relative rotation" kicker={`${span.label} · arrow is the latest step`}>
+          <Panel title="Relative rotation" kicker={`${span.label} · open dot is the start, arrow points to today`}>
             <p className="mb-3 text-sm text-muted">
-              The horizontal axis is how the sector stands against the S&P 500 versus its own recent pace. Right of 100 means that relationship is stronger than usual. The vertical axis is whether that is speeding up. Above 100 means it is improving. The line chart above is the actual percent gained or lost against the index over this window. This chart is the direction. The tail is the path, and the arrow is the latest step. Leading is strong and still improving. Weakening is strong but fading. Lagging is weak and still fading. Improving is weak but starting to catch up. Not a signal to trade.
+              The horizontal axis is how the sector stands against the S&P 500 versus its own recent pace. Right of 100 means that relationship is stronger than usual. The vertical axis is whether that is speeding up. Above 100 means it is improving. The line chart above is the actual percent gained or lost against the index over this window. Here each sector is only two dots: the open dot is the start of this window, the filled dot is today, and the arrow points from start to today. Leading is strong and still improving. Weakening is strong but fading. Lagging is weak and still fading. Improving is weak but starting to catch up. Not a signal to trade.
             </p>
             <RotationChart book={book} days={span.days} smooth={span.smooth} focus={focus} onFocus={setFocus} />
           </Panel>
@@ -231,9 +231,9 @@ function Legend({
 }
 
 function RrgPlot({ trails, focus }: { trails: { symbol: string; label: string; color: string; points: TrailPoint[] }[]; focus: string | null }) {
-  const width = 640;
-  const height = 460;
-  const pad = { l: 52, r: 18, t: 18, b: 42 };
+  const width = 800;
+  const height = 760;
+  const pad = { l: 64, r: 28, t: 28, b: 52 };
   let minX = 98;
   let maxX = 102;
   let minY = 98;
@@ -263,7 +263,7 @@ function RrgPlot({ trails, focus }: { trails: { symbol: string; label: string; c
     { label: "Weakening", x: width - pad.r - 8, y: height - pad.b - 8, anchor: "end" as const },
   ];
   return (
-    <svg viewBox={`0 0 ${width} ${height}`} className="h-[28rem] w-full">
+    <svg viewBox={`0 0 ${width} ${height}`} className="h-auto w-full">
       <rect x={pad.l} y={pad.t} width={Math.max(0, x100 - pad.l)} height={Math.max(0, y100 - pad.t)} fill="var(--color-up)" opacity="0.08" />
       <rect x={x100} y={pad.t} width={Math.max(0, width - pad.r - x100)} height={Math.max(0, y100 - pad.t)} fill="var(--color-up)" opacity="0.16" />
       <rect x={pad.l} y={y100} width={Math.max(0, x100 - pad.l)} height={Math.max(0, height - pad.b - y100)} fill="var(--color-down)" opacity="0.12" />
@@ -271,27 +271,27 @@ function RrgPlot({ trails, focus }: { trails: { symbol: string; label: string; c
       <line x1={x100} y1={pad.t} x2={x100} y2={height - pad.b} stroke="var(--color-muted)" strokeDasharray="4 4" />
       <line x1={pad.l} y1={y100} x2={width - pad.r} y2={y100} stroke="var(--color-muted)" strokeDasharray="4 4" />
       {zones.map((zone) => (
-        <text key={zone.label} x={zone.x} y={zone.y} textAnchor={zone.anchor} fill="var(--color-subtle)" fontSize="12">
+        <text key={zone.label} x={zone.x} y={zone.y} textAnchor={zone.anchor} fill="var(--color-subtle)" fontSize="16">
           {zone.label}
         </text>
       ))}
-      <text x={width / 2} y={height - 8} textAnchor="middle" fill="var(--color-subtle)" fontSize="11">
+      <text x={width / 2} y={height - 12} textAnchor="middle" fill="var(--color-subtle)" fontSize="14">
         RS-ratio · right means stronger than its usual pace versus the index
       </text>
-      <text x={14} y={height / 2} fill="var(--color-subtle)" fontSize="11" transform={`rotate(-90 14 ${height / 2})`}>
+      <text x={16} y={height / 2} fill="var(--color-subtle)" fontSize="14" transform={`rotate(-90 16 ${height / 2})`}>
         RS-momentum · up means improvement is speeding up
       </text>
       {trails.map((sector) => {
         const dim = focus != null && focus !== sector.symbol;
-        const path = sector.points.map((point) => `${xOf(point.ratio)},${yOf(point.momentum)}`).join(" ");
-        const last = sector.points[sector.points.length - 1];
-        const prev = sector.points[sector.points.length - 2];
+        const start = sector.points[0];
+        const end = sector.points[sector.points.length - 1];
         return (
           <g key={sector.symbol} opacity={dim ? 0.16 : 1}>
-            <polyline points={path} fill="none" stroke={sector.color} strokeWidth={focus === sector.symbol ? 2.6 : 1.8} strokeLinejoin="round" strokeLinecap="round" />
-            {prev && last ? <Arrow x1={xOf(prev.ratio)} y1={yOf(prev.momentum)} x2={xOf(last.ratio)} y2={yOf(last.momentum)} color={sector.color} /> : null}
-            <circle cx={xOf(last.ratio)} cy={yOf(last.momentum)} r={focus === sector.symbol ? 4.5 : 3.2} fill={sector.color} />
-            <text x={xOf(last.ratio) + 6} y={yOf(last.momentum) - 6} fill={sector.color} fontSize="11">
+            <line x1={xOf(start.ratio)} y1={yOf(start.momentum)} x2={xOf(end.ratio)} y2={yOf(end.momentum)} stroke={sector.color} strokeWidth={focus === sector.symbol ? 3 : 2} />
+            <Arrow x1={xOf(start.ratio)} y1={yOf(start.momentum)} x2={xOf(end.ratio)} y2={yOf(end.momentum)} color={sector.color} />
+            <circle cx={xOf(start.ratio)} cy={yOf(start.momentum)} r={4} fill="var(--color-bg)" stroke={sector.color} strokeWidth={2} />
+            <circle cx={xOf(end.ratio)} cy={yOf(end.momentum)} r={focus === sector.symbol ? 6 : 4.5} fill={sector.color} />
+            <text x={xOf(end.ratio) + 10} y={yOf(end.momentum) - 10} fill={sector.color} fontSize="16">
               {sector.label}
             </text>
           </g>
@@ -303,7 +303,7 @@ function RrgPlot({ trails, focus }: { trails: { symbol: string; label: string; c
 
 function Arrow({ x1, y1, x2, y2, color }: { x1: number; y1: number; x2: number; y2: number; color: string }) {
   const angle = Math.atan2(y2 - y1, x2 - x1);
-  const size = 9;
+  const size = 14;
   const left = { x: x2 - size * Math.cos(angle - 0.45), y: y2 - size * Math.sin(angle - 0.45) };
   const right = { x: x2 - size * Math.cos(angle + 0.45), y: y2 - size * Math.sin(angle + 0.45) };
   return <polygon points={`${x2},${y2} ${left.x},${left.y} ${right.x},${right.y}`} fill={color} />;
