@@ -11,9 +11,7 @@ import {
   LayoutDashboard,
   LayoutGrid,
   LineChart,
-  NotebookPen,
   PieChart,
-  ScrollText,
   Scale,
   Settings,
   ShieldAlert,
@@ -43,8 +41,6 @@ import { Sectors } from "@/components/dashboard/sectors";
 import { Macro } from "@/components/dashboard/macro";
 import { SettingsPanel } from "@/components/dashboard/settings-panel";
 import { LookthruApp } from "@/components/lookthru/app";
-import { ConvictionTab } from "@/components/dashboard/conviction";
-import { FilingsTab } from "@/components/dashboard/filings";
 
 const NAV: { id: TabId; label: string; icon: typeof LayoutDashboard }[] = [
   { id: "overview", label: "Overview", icon: LayoutDashboard },
@@ -62,12 +58,8 @@ const NAV: { id: TabId; label: string; icon: typeof LayoutDashboard }[] = [
   { id: "sectors", label: "Sectors", icon: PieChart },
   { id: "macro", label: "Macro", icon: CalendarDays },
   { id: "lookthru", label: "Lookthru", icon: Waypoints },
-  { id: "conviction", label: "Conviction", icon: NotebookPen },
-  { id: "filings", label: "Filings", icon: ScrollText },
   { id: "settings", label: "Settings", icon: Settings },
 ];
-
-const SELF_CONTAINED = new Set<TabId>(["lookthru", "smart", "settings", "heatmap", "frontier", "flows", "options", "dark", "conviction", "filings"]);
 
 export function Desk() {
   const search = useSearch({ from: "/" });
@@ -86,7 +78,7 @@ export function Desk() {
     setReady(true);
   }, []);
 
-  const needsBoard = !SELF_CONTAINED.has(search.tab);
+  const needsBoard = search.tab !== "lookthru" && search.tab !== "smart" && search.tab !== "settings" && search.tab !== "heatmap" && search.tab !== "frontier" && search.tab !== "flows" && search.tab !== "options" && search.tab !== "dark";
   const data = board.data;
   const vix = data?.quotes.find((quote) => quote.symbol === "^VIX");
   const active = NAV.find((item) => item.id === search.tab) ?? NAV[0];
@@ -118,11 +110,10 @@ export function Desk() {
                   if (search.tab === "smart") {
                     const next = await getSmartMoney({ data: { fresh: true } });
                     client.setQueryData(["smart-money"], next);
-                  } else if (search.tab === "conviction") {
-                    window.dispatchEvent(new Event("desk-refresh"));
-                  } else if (SELF_CONTAINED.has(search.tab)) {
+                  } else if (search.tab === "lookthru" || search.tab === "heatmap" || search.tab === "frontier" || search.tab === "flows" || search.tab === "options" || search.tab === "dark") {
                     window.dispatchEvent(new Event("desk-refresh"));
                   } else if (search.tab !== "settings") {
+                    if (search.tab === "overview") window.dispatchEvent(new Event("desk-refresh"));
                     const next = await getBoard({ data: { fresh: true, live: true } });
                     client.setQueryData(["market-board"], next);
                     if (search.tab === "yields") {
@@ -187,8 +178,6 @@ export function Desk() {
           {data && search.tab === "sectors" ? <Sectors board={data} /> : null}
           {data && search.tab === "macro" ? <Macro board={data} /> : null}
           {search.tab === "lookthru" ? <LookthruApp /> : null}
-          {search.tab === "conviction" ? <ConvictionTab /> : null}
-          {search.tab === "filings" ? <FilingsTab /> : null}
           {search.tab === "settings" ? (
             ready ? <SettingsPanel /> : <p className="text-sm text-muted">Reading saved zones.</p>
           ) : null}

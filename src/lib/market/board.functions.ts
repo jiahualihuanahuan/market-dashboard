@@ -16,6 +16,18 @@ export const getBoard = createServerFn({ method: "GET" })
     return loadBoard(data.fresh, data.live);
   });
 
+export const getTape = createServerFn({ method: "GET" })
+  .validator((input: unknown) => {
+    const live = typeof input === "object" && input !== null && "live" in input
+      ? (input as { live?: boolean }).live === true
+      : false;
+    return { live };
+  })
+  .handler(async ({ data }) => {
+    const { loadTape } = await import("./tape.server");
+    return loadTape(data.live);
+  });
+
 function freshFlag(input: unknown): { fresh: boolean } {
   if (typeof input === "object" && input !== null && "fresh" in input) {
     return { fresh: (input as { fresh?: boolean }).fresh === true };

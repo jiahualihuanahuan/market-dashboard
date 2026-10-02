@@ -1,8 +1,13 @@
-import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import type { Board, CnnFear, Quote } from "@/lib/market/types";
 import { UNIVERSE_BY_SYMBOL } from "@/lib/market/universe";
 import { fmtBp, fmtCompact, fmtPrice } from "@/lib/market/format";
 import { Empty, Gauge, Heat, Panel, Tone, tooltipStyle } from "@/components/dashboard/bits";
+import { getTape } from "@/lib/market/board.functions";
+import { RANGES, sliceSeries, windowBreadth, type RangeId, type Tape } from "@/lib/market/tape";
+import { cn } from "@/lib/utils";
 
 const CHARTS = ["^GSPC", "^NDX", "^GSPTSE", "^GDAXI"];
 
@@ -45,7 +50,8 @@ export function Overview({ board }: { board: Board }) {
   const spy = by.get("SPY");
 
   return (
-    <div className="grid gap-4">
+    <div className="grid min-w-0 gap-4">
+      <UsTape />
       <div className="grid gap-4 lg:grid-cols-3">
         <Panel title="CNN Fear and Greed" kicker="cnn.com · 0 is extreme fear, 100 is extreme greed">
           {board.fearCnn ? (
@@ -192,6 +198,166 @@ export function Overview({ board }: { board: Board }) {
       <p className="text-sm text-muted">{board.crossCheck}</p>
     </div>
   );
+}
+
+function UsTape() {
+  const liveRef = useRef(false);
+  const [cardRange, setCardRange] = useState<RangeId>("day");
+  const [priceRange, setPriceRange] = useState<RangeId>("y1");
+  const [breadthRange, setBreadthRange] = useState<RangeId>("y1");
+  const query = useQuery({
+    queryKey: ["us-tape"],
+    queryFn: () => getTape({ data: { live: liveRef.current } }),
+    staleTime: 10 * 60 * 1000,
+  });
+  useEffect(() => {
+    const onRefresh = () => {
+      liveRef.current = true;
+      void query.refetch().finally(() => {
+        liveRef.current = false;
+      });
+    };
+    window.addEventListener("desk-refresh", onRefresh);
+    return () => window.removeEventListener("desk-refresh", onRefresh);
+  }, [query]);
+
+  if (query.isPending) return <p className="text-sm text-muted">Reading US index prices and S&P 500 breadth.</p>;
+  if (query.isError || !query.data) {
+    return <p className="text-sm text-muted">{query.error instanceof Error ? query.error.message : "US index history did not load."}</p>;
+  }
+  return <TapeBody tape={query.data} cardRange={cardRange} setCardRange={setCardRange} priceRange={priceRange} setPriceRange={setPriceRange} breadthRange={breadthRange} setBreadthRange={setBreadthRange} />;
+}
+
+function TapeBody({
+  tape,
+  cardRange,
+  setCardRange,
+  priceRange,
+  setPriceRange,
+  breadthRange,
+  setBreadthRange,
+}: {
+  tape: Tape;
+  cardRange: RangeId;
+  setCardRange: (range: RangeId) => void;
+  priceRange: RangeId;
+  setPriceRange: (range: RangeId) => void;
+  breadthRange: RangeId;
+  setBreadthRange: (range: RangeId) => void;
+}) {
+  const priceLine = useMemo(() => {
+    if (priceRange === "day" && tape.spxDay.length > 1) return tape.spxDay;
+    return sliceSeries(tape.spx, priceRange === "day" ? "week" : priceRange);
+  }, [tape, priceRange]);
+  const breadthLine = useMemo(
+    () => windowBreadth(tape.breadth, breadthRange === "day" ? "week" : breadthRange),
+    [tape, breadthRange],
+  );
+  const lastBreadth = tape.breadth[tape.breadth.length - 1];
+  const cardLabel = RANGES.find((item) => item[0] === cardRange)?.[1] ?? "Day";
+
+  return (
+    <>
+      <Panel className="min-w-0" title="US indexes" kicker={tape.asOf ? `Through ${tape.asOf}` : "Latest close"}>
+        <p className="mb-3 max-w-3xl text-sm text-muted">
+          Price is the index level. The percent is how much that level changed over the window you pick. Day is the last session. Week is 5 sessions, month 21, quarter 63, half year 126, and a year is 252 sessions. YTD starts at the last close of last year.
+        </p>
+        <RangeToggle value={cardRange} onChange={setCardRange} />
+        <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {tape.indexes.map((row) => (
+            <article key={row.symbol} className="rounded-lg border border-line px-3 py-3">
+              <div className="flex items-baseline justify-between gap-3">
+                <h3 className="text-sm font-medium">{row.label}</h3>
+                <Tone value={row.changes[cardRange]} />
+              </div>
+              <p className="mt-1 font-mono text-2xl tabular-nums tracking-tight">{fmtPrice(row.price)}</p>
+              <p className="mt-1 text-xs text-muted">{cardLabel}</p>
+            </article>
+          ))}
+        </div>
+      </Panel>
+
+      <Panel className="min-w-0" title="S&P 500" kicker="The index level, not rebased">
+        <p className="mb-3 text-sm text-muted">
+          The line is the S&P 500 price.{" "}
+          {priceRange === "day"
+            ? tape.spxDay.length > 1
+              ? "Day is the latest session in five-minute steps."
+              : "Day is the last five closes, because one close is a single point."
+            : "This window is daily closes."}
+        </p>
+        <RangeToggle value={priceRange} onChange={setPriceRange} />
+        <div className="mt-3 h-72">
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={priceLine} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+              <CartesianGrid stroke="var(--color-line)" vertical={false} />
+              <XAxis dataKey="d" tick={{ fill: "var(--color-subtle)", fontSize: 11 }} minTickGap={28} />
+              <YAxis domain={["auto", "auto"]} tick={{ fill: "var(--color-subtle)", fontSize: 11 }} width={56} tickFormatter={(value) => fmtPrice(Number(value))} />
+              <Tooltip {...tooltipStyle} formatter={(value) => [fmtPrice(typeof value === "number" ? value : null), "S&P 500"]} />
+              <Line dataKey="v" name="S&P 500" stroke="var(--color-fg)" dot={false} strokeWidth={2} isAnimationActive={false} />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      </Panel>
+
+      <Panel className="min-w-0" title="S&P 500 net breadth" kicker={lastBreadth ? `Latest day ${fmtNet(lastBreadth.net)}` : "Advances minus declines"}>
+        <p className="mb-3 max-w-3xl text-sm text-muted">
+          Each day, count how many S&P 500 stocks rose and how many fell. Net breadth is the difference. The line adds those daily nets from the left edge of the window, so it starts at zero. A rising line means more stocks have been climbing than falling over that stretch. It is not the index price. A few giant stocks can lift the S&P while this line falls.
+          {breadthRange === "day" ? " One day is a single point, so Day draws the last week." : ""}
+        </p>
+        <RangeToggle value={breadthRange} onChange={setBreadthRange} />
+        {breadthLine.length > 1 ? (
+          <div className="mt-3 h-72">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={breadthLine} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                <CartesianGrid stroke="var(--color-line)" vertical={false} />
+                <XAxis dataKey="d" tick={{ fill: "var(--color-subtle)", fontSize: 11 }} minTickGap={28} />
+                <YAxis tick={{ fill: "var(--color-subtle)", fontSize: 11 }} width={48} />
+                <ReferenceLine y={0} stroke="var(--color-muted)" />
+                <Tooltip
+                  {...tooltipStyle}
+                  formatter={(value, name) => {
+                    if (name === "net") return [fmtNet(typeof value === "number" ? value : null), "That day"];
+                    return [fmtNet(typeof value === "number" ? value : null), "Since the left edge"];
+                  }}
+                />
+                <Line dataKey="cum" name="cum" stroke="var(--color-fg)" dot={false} strokeWidth={2} isAnimationActive={false} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        ) : (
+          <p className="mt-3 text-sm text-muted">Breadth history did not come back.</p>
+        )}
+        <p className="mt-3 max-w-3xl text-xs text-muted">{tape.note}</p>
+      </Panel>
+    </>
+  );
+}
+
+function RangeToggle({ value, onChange }: { value: RangeId; onChange: (range: RangeId) => void }) {
+  return (
+    <div className="flex gap-2 overflow-x-auto">
+      {RANGES.map(([id, label]) => (
+        <button
+          key={id}
+          type="button"
+          onClick={() => onChange(id)}
+          className={cn(
+            "h-11 shrink-0 rounded-full border px-3 text-sm",
+            value === id ? "border-fg bg-elevated text-fg" : "border-line text-muted",
+          )}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function fmtNet(value: number | null): string {
+  if (value == null || !Number.isFinite(value)) return "—";
+  const sign = value > 0 ? "+" : "";
+  return `${sign}${Math.round(value).toLocaleString("en-US")}`;
 }
 
 function Stat({ label, value, hint }: { label: string; value: string; hint?: string }) {
