@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  Activity,
   ArrowLeftRight,
   CalendarDays,
   EyeOff,
@@ -28,6 +29,7 @@ import { Overview } from "@/components/dashboard/overview";
 import { Yields } from "@/components/dashboard/yields";
 import { Commodities } from "@/components/dashboard/commodities";
 import { HeatmapTab } from "@/components/dashboard/heatmap";
+import { TechnicalTab } from "@/components/dashboard/technical";
 import { ValuationTab } from "@/components/dashboard/valuation";
 import { FrontierTab } from "@/components/dashboard/frontier";
 import { FlowsTab } from "@/components/dashboard/flows";
@@ -46,6 +48,7 @@ const NAV: { id: TabId; label: string; icon: typeof LayoutDashboard }[] = [
   { id: "yields", label: "Yield curve", icon: LineChart },
   { id: "commodities", label: "Commodities", icon: Layers },
   { id: "heatmap", label: "Heatmap", icon: LayoutGrid },
+  { id: "technical", label: "Technical", icon: Activity },
   { id: "valuation", label: "Valuation", icon: Scale },
   { id: "frontier", label: "Frontier", icon: Spline },
   { id: "flows", label: "Flows", icon: ArrowLeftRight },
@@ -58,7 +61,7 @@ const NAV: { id: TabId; label: string; icon: typeof LayoutDashboard }[] = [
   { id: "settings", label: "Settings", icon: Settings },
 ];
 
-const SELF_CONTAINED = new Set<TabId>(["lookthru", "smart", "insiders", "settings", "heatmap", "valuation", "frontier", "flows", "options", "dark"]);
+const SELF_CONTAINED = new Set<TabId>(["lookthru", "smart", "insiders", "settings", "heatmap", "technical", "valuation", "frontier", "flows", "options", "dark"]);
 
 export function Desk() {
   const search = useSearch({ from: "/" });
@@ -168,6 +171,7 @@ export function Desk() {
           {data && search.tab === "yields" ? <Yields board={data} /> : null}
           {data && search.tab === "commodities" ? <Commodities board={data} /> : null}
           {search.tab === "heatmap" ? <HeatmapTab /> : null}
+          {search.tab === "technical" ? <TechnicalTab /> : null}
           {search.tab === "valuation" ? <ValuationTab /> : null}
           {search.tab === "frontier" ? <FrontierTab /> : null}
           {search.tab === "flows" ? <FlowsTab /> : null}

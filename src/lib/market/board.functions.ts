@@ -93,6 +93,19 @@ export const getOptions = createServerFn({ method: "GET" })
     return loadOptions(data.symbol, data.live);
   });
 
+export const getTechnical = createServerFn({ method: "GET" })
+  .validator((input: unknown) => {
+    const raw = typeof input === "object" && input && "symbol" in input ? String((input as { symbol?: string }).symbol ?? "") : "SPY";
+    const live = typeof input === "object" && input !== null && "live" in input ? (input as { live?: boolean }).live === true : false;
+    const symbol = raw.trim().toUpperCase().replace(/\s+/g, "").replace(/\$/g, "");
+    if (!/^[A-Z0-9^][A-Z0-9.\-]{0,14}$/.test(symbol)) throw new Error("Enter a stock or ETF ticker.");
+    return { symbol, live };
+  })
+  .handler(async ({ data }) => {
+    const { loadTechnical } = await import("./technical.server");
+    return loadTechnical(data.symbol, data.live);
+  });
+
 export const getValuation = createServerFn({ method: "GET" })
   .validator((input: unknown) => {
     const symbol = typeof input === "object" && input && "symbol" in input ? String((input as { symbol?: string }).symbol ?? "") : "";
