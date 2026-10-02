@@ -9,6 +9,7 @@ import type {
   IndexBreadth,
   InsiderFiling,
   MacroPrint,
+  MacroChart,
   ManagerBook,
   Overlap,
   Quote,
@@ -54,7 +55,7 @@ const MANAGERS = [
 ];
 
 export async function loadBoard(fresh: boolean, live = false): Promise<Board> {
-  if (!fresh && boardCache && boardCache.data.ratios && boardCache.data.breadth.indexes?.length && "fearCnn" in boardCache.data && boardCache.data.stress?.length >= 2 && boardCache.data.macro.every((row) => row.aligned) && Date.now() - boardCache.at < 8 * 60 * 1000) {
+  if (!fresh && boardCache && boardCache.data.ratios && boardCache.data.breadth.indexes?.length && "fearCnn" in boardCache.data && boardCache.data.stress?.length >= 2 && (boardCache.data.macroCharts?.length ?? 0) >= 7 && boardCache.data.macro.every((row) => row.aligned) && Date.now() - boardCache.at < 8 * 60 * 1000) {
     return boardCache.data;
   }
   const warnings: string[] = [];
@@ -172,6 +173,7 @@ export async function loadBoard(fresh: boolean, live = false): Promise<Board> {
     fearCnn,
     crossCheck,
     macro: fred?.macro ?? [],
+    macroCharts: fred?.macroCharts ?? [],
     warnings,
   };
   boardCache = { at: Date.now(), data: board };
@@ -470,6 +472,7 @@ type FredPack = {
   yieldVol: number | null;
   real10: number | null;
   macro: MacroPrint[];
+  macroCharts: MacroChart[];
 };
 
 async function loadFred(): Promise<FredPack> {
@@ -487,6 +490,11 @@ async function loadFred(): Promise<FredPack> {
     "PAYEMS",
     "PCEPI",
     "PCEPILFE",
+    "PCETRIM1M158SFRBDAL",
+    "PCETRIM6M680SFRBDAL",
+    "PCETRIM12M159SFRBDAL",
+    "PI",
+    "PCE",
     "A191RL1Q225SBEA",
     "RSAFS",
     "PPIACO",
@@ -497,7 +505,7 @@ async function loadFred(): Promise<FredPack> {
   const series = new Map<string, Obs[]>();
   await mapPool(ids, 8, async (id) => {
     try {
-      const start = id.startsWith("DGS") || id === "DFF" || id === "TEDRATE" || id === "NFCI" || id === "BAMLH0A0HYM2" ? "1999-01-01" : "2016-01-01";
+      const start = fredStart(id);
       series.set(id, await fredSeries(id, start));
     } catch {
       series.set(id, []);
@@ -570,7 +578,57 @@ async function loadFred(): Promise<FredPack> {
     real10: realLast?.value ?? null,
     stress: stressSeries(hySeries, series.get("NFCI") ?? [], ofr),
     macro: await withExpected(buildMacro(series, latest)),
+    macroCharts: buildMacroCharts(series),
   };
+}
+
+const MACRO_CHARTS: { id: string; label: string; source: string; yoy: boolean }[] = [
+  { id: "pce", label: "PCE", source: "PCEPI", yoy: true },
+  { id: "core", label: "Core PCE", source: "PCEPILFE", yoy: true },
+  { id: "trim1", label: "Trimmed mean PCE, 1-month annualized", source: "PCETRIM1M158SFRBDAL", yoy: false },
+  { id: "trim6", label: "Trimmed mean PCE, 6-month annualized", source: "PCETRIM6M680SFRBDAL", yoy: false },
+  { id: "trim12", label: "Trimmed mean PCE, 1-year", source: "PCETRIM12M159SFRBDAL", yoy: false },
+  { id: "income", label: "Personal income", source: "PI", yoy: true },
+  { id: "spending", label: "Personal spending", source: "PCE", yoy: true },
+];
+
+function buildMacroCharts(series: Map<string, Obs[]>): MacroChart[] {
+  const out: MacroChart[] = [];
+  for (const spec of MACRO_CHARTS) {
+    const obs = series.get(spec.source) ?? [];
+    const points = (spec.yoy ? yearChange(obs) : ratePoints(obs)).filter((point) => point.d >= "2010-01-01");
+    const last = points.at(-1);
+    if (!last) continue;
+    out.push({ id: spec.id, label: spec.label, asOf: last.d, value: last.v, points });
+  }
+  return out;
+}
+
+function ratePoints(obs: Obs[]): { d: string; v: number }[] {
+  return obs.map((row) => ({ d: row.date, v: round(row.value, 2) }));
+}
+
+function yearChange(obs: Obs[]): { d: string; v: number }[] {
+  const byMonth = new Map(obs.map((row) => [row.date.slice(0, 7), row.value]));
+  const points: { d: string; v: number }[] = [];
+  for (const row of obs) {
+    const prev = byMonth.get(shiftMonth(row.date, -12).slice(0, 7));
+    if (prev == null || !(prev > 0)) continue;
+    points.push({ d: row.date, v: round((row.value / prev - 1) * 100, 2) });
+  }
+  return points;
+}
+
+function shiftMonth(date: string, months: number): string {
+  const [year, month] = date.split("-").map(Number);
+  const next = new Date(Date.UTC(year, (month - 1) + months, 1));
+  return `${next.getUTCFullYear()}-${String(next.getUTCMonth() + 1).padStart(2, "0")}-01`;
+}
+
+function fredStart(id: string): string {
+  if (id === "PCEPI" || id === "PCEPILFE" || id === "PI" || id === "PCE" || id.startsWith("PCETRIM")) return "2004-01-01";
+  if (id.startsWith("DGS") || id === "DFF" || id === "TEDRATE" || id === "NFCI" || id === "BAMLH0A0HYM2") return "1999-01-01";
+  return "2016-01-01";
 }
 
 function stressSeries(hy: Obs[], nfci: Obs[], ofr: Obs[]): StressSeries[] {

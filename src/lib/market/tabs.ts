@@ -1,5 +1,6 @@
 export const TABS = [
   "overview",
+  "macro",
   "yields",
   "commodities",
   "heatmap",
@@ -12,7 +13,6 @@ export const TABS = [
   "panic",
   "smart",
   "sectors",
-  "macro",
   "lookthru",
   "conviction",
   "filings",

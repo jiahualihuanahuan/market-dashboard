@@ -56,6 +56,14 @@ export type MacroPrint = {
   aligned?: boolean;
 };
 
+export type MacroChart = {
+  id: string;
+  label: string;
+  asOf: string;
+  value: number;
+  points: { d: string; v: number }[];
+};
+
 export type SpreadPath = {
   d: string;
   curve: number | null;
@@ -152,6 +160,7 @@ export type Board = {
   fearCnn: CnnFear | null;
   crossCheck: string;
   macro: MacroPrint[];
+  macroCharts: MacroChart[];
   warnings: string[];
 };
 

@@ -48,6 +48,7 @@ import { FilingsTab } from "@/components/dashboard/filings";
 
 const NAV: { id: TabId; label: string; icon: typeof LayoutDashboard }[] = [
   { id: "overview", label: "Overview", icon: LayoutDashboard },
+  { id: "macro", label: "Macro", icon: CalendarDays },
   { id: "yields", label: "Yield curve", icon: LineChart },
   { id: "commodities", label: "Commodities", icon: Layers },
   { id: "heatmap", label: "Heatmap", icon: LayoutGrid },
@@ -60,7 +61,6 @@ const NAV: { id: TabId; label: string; icon: typeof LayoutDashboard }[] = [
   { id: "panic", label: "Panic rules", icon: ShieldAlert },
   { id: "smart", label: "Smart money", icon: Landmark },
   { id: "sectors", label: "Sectors", icon: PieChart },
-  { id: "macro", label: "Macro", icon: CalendarDays },
   { id: "lookthru", label: "Lookthru", icon: Waypoints },
   { id: "conviction", label: "Conviction", icon: NotebookPen },
   { id: "filings", label: "Filings", icon: ScrollText },
