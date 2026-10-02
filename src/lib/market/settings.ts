@@ -27,6 +27,12 @@ type DeskState = {
   setPanic: (patch: Partial<Pick<DeskState, "partialVix" | "fullVix" | "partialPct" | "breadthPanic">>) => void;
 };
 
+export const DEFAULT_PINS: PinnedInstitution[] = [
+  { cik: "0001067983", name: "Berkshire Hathaway" },
+  { cik: "0001709323", name: "Himalaya Capital" },
+  { cik: "0001536411", name: "Duquesne Family Office" },
+];
+
 export const DEFAULT_ZONES: Zone[] = [
   { symbol: "COST", low: 860, high: 920, skipAbove: 980, note: "Around 900" },
   { symbol: "GOOGL", low: 300, high: 330, skipAbove: 350, note: "350 and above is a skip" },
@@ -39,7 +45,7 @@ export const useDesk = create<DeskState>()(
     (set) => ({
       zones: DEFAULT_ZONES,
       watch: ["COST", "GOOGL", "NVDA", "SPY", "QQQ", "IWM"],
-      pins: [],
+      pins: DEFAULT_PINS,
       partialVix: 45,
       fullVix: 50,
       partialPct: 30,
@@ -79,6 +85,16 @@ export const useDesk = create<DeskState>()(
         })),
       setPanic: (patch) => set(patch),
     }),
-    { name: "market-desk", skipHydration: true },
+    {
+      name: "market-desk",
+      skipHydration: true,
+      version: 1,
+      migrate: (persisted) => {
+        const state = (persisted ?? {}) as { pins?: PinnedInstitution[] };
+        const current = state.pins ?? [];
+        const extra = current.filter((pin) => !DEFAULT_PINS.some((item) => item.cik === pin.cik));
+        return { ...state, pins: [...DEFAULT_PINS, ...extra].slice(0, 12) };
+      },
+    },
   ),
 );

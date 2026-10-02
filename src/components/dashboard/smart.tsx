@@ -166,7 +166,7 @@ function Pinned() {
   if (!pins.length) return null;
   return (
     <div className="grid gap-4">
-      <p className="text-sm text-muted">Pinned institutions stay on this page. The list is saved in this browser only, up to 12.</p>
+      <p className="text-sm text-muted">Berkshire, Himalaya, and Duquesne start here. Unpin works the same way as for anyone you add. Saved in this browser only, up to 12.</p>
       <div className="grid gap-4 lg:grid-cols-2">
         {pins.map((pin, index) => {
           const book = books[index]?.data;
@@ -244,7 +244,7 @@ function Famous() {
       </div>
       <Panel title="Held across every filer" kicker={universe.data ? `${universe.data.managerCount.toLocaleString("en-US")} institutions · quarter ended ${universe.data.quarter || "—"}` : "The whole 13F file"}>
         <p className="mb-3 text-sm text-muted">
-          This adds up every institution in the quarterly file, not just the three cards below. A stock is listed once at least two filers report it. The count is how many institutions hold it. The dollars are what they reported, added together.
+          This adds up every institution in the quarterly file, not just the ones pinned above. A stock is listed once at least two filers report it. The count is how many institutions hold it. The dollars are what they reported, added together.
         </p>
         {universe.isPending ? <p className="text-sm text-muted">Reading the SEC file. The first time takes about a minute.</p> : null}
         {universe.isError ? <p className="text-sm text-muted">{universe.error instanceof Error ? universe.error.message : "The 13F file did not load."}</p> : null}
@@ -262,29 +262,6 @@ function Famous() {
           </ul>
         ) : null}
       </Panel>
-      <div className="grid gap-4 lg:grid-cols-2">
-        {data.books.map((book) => (
-          <Panel key={book.name} title={book.name} kicker={book.who} action={
-            <a className="text-sm text-muted underline-offset-2 hover:underline" href={book.url} target="_blank" rel="noreferrer">
-              Filing
-            </a>
-          }>
-            <p className="mb-3 text-xs text-muted">
-              {book.filed ? `Filed ${book.filed}` : "No date"}
-              {book.period ? ` · period ${book.period}` : ""}
-            </p>
-            {book.error ? <p className="text-sm text-muted">{book.error}</p> : null}
-            <ul className="max-h-64 overflow-y-auto overscroll-contain rounded-md border border-line px-2">
-              {book.holdings.map((holding) => (
-                <li key={holding.issuer} className="flex items-baseline justify-between gap-3 border-t border-line py-2 text-sm">
-                  <span>{holding.issuer}</span>
-                  <span className="font-mono tabular-nums text-muted">{fmtCompact(holding.value)}{holding.weight == null ? "" : ` · ${share(holding.weight, 100)}`}</span>
-                </li>
-              ))}
-            </ul>
-          </Panel>
-        ))}
-      </div>
       <Panel title="Recent Form 4s" kicker="Last several days, issuer and reporting person as the SEC lists them.">
         <ul className="grid gap-2">
           {data.insiders.map((row) => (
