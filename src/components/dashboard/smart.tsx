@@ -38,7 +38,7 @@ function Holders() {
     queryFn: () => getHolderBook({ data: { cik: cik ?? "" } }),
     enabled: Boolean(cik),
     staleTime: 6 * 60 * 60 * 1000,
-    refetchInterval: (query) => (query.state.data?.error ? 20_000 : false),
+    refetchInterval: (query: { state: { data?: { error?: string | null } | undefined } }) => (query.state.data?.error ? 20_000 : false),
   });
   const data = directory.data;
 
@@ -162,7 +162,7 @@ function Pinned() {
       queryKey: ["holder-book", pin.cik],
       queryFn: () => getHolderBook({ data: { cik: pin.cik } }),
       staleTime: 6 * 60 * 60 * 1000,
-      refetchInterval: (query) => (query.state.data?.error ? 20_000 : false),
+      refetchInterval: (query: { state: { data?: { error?: string | null } | undefined } }) => (query.state.data?.error ? 20_000 : false),
     })),
   });
   if (!pins.length) return null;
