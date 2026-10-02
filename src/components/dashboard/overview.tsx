@@ -217,7 +217,7 @@ function TapeBody({
 
   return (
     <>
-      <Panel className="min-w-0" title="Major indexes" kicker={tape.quoteTime ? `As of ${tape.quoteTime}` : tape.asOf ? `Through ${tape.asOf}` : "Latest close"}>
+      <Panel className="min-w-0" title="World indexes" kicker={tape.quoteTime ? `As of ${tape.quoteTime}` : tape.asOf ? `Through ${tape.asOf}` : "Latest close"}>
         <p className="mb-3 max-w-3xl text-sm text-muted">
           Price is the index level. The percent is how much that level changed over the window you pick. Day is the last session. Week is 5 sessions, month 21, quarter 63, half year 126, and a year is 252 sessions. YTD starts at the last close of last year. These levels refresh about every minute while this page is open. They come from Yahoo, not a direct exchange feed.
         </p>
