@@ -10,9 +10,17 @@ const NOTES: Record<string, string> = {
   trim12: "The trimmed measure over the past year. This is the change that actually happened, not a pace stretched to twelve months.",
   income: "What households earned, compared with a year earlier. Wages, benefits, interest, and government payments are included.",
   spending: "What households spent on goods and services, compared with a year earlier. This is the dollar amount spent, not the price index.",
+  "ca-cpi": "Prices Canadian households pay, compared with the same month a year earlier. This is Statistics Canada’s total CPI, published by the Bank of Canada. The dashed line is the 2% goal.",
+  "ca-trim": "CPI-trim drops the most extreme price changes, then keeps what is left. The Bank of Canada uses this, with CPI-median, to see the trend under the headline.",
+  "ca-median": "The middle price change in the basket. Half of the categories rose faster than this, and half rose slower.",
+  "ca-common": "The price move that shows up across many categories at once. The Bank of Canada still publishes it, but it leans more on trim and median.",
+  "ca-unemployment": "The share of the labour force that does not have a job and is looking for one.",
+  "ca-employment": "The share of people age 15 to 64 who have a job. This is not the unemployment rate. People leaving the workforce can lower unemployment without more jobs.",
+  "ca-gdp": "How much the economy grew or shrank versus the previous quarter. It is not stretched to a yearly pace. 0.5 means half a percent of growth in that quarter.",
+  "ca-rate": "The interest rate the Bank of Canada wants banks to charge each other overnight. Cuts make borrowing cheaper. Hikes make it tighter.",
 };
 
-const HAS_TARGET = new Set(["pce", "core", "trim1", "trim6", "trim12"]);
+const HAS_TARGET = new Set(["pce", "core", "trim1", "trim6", "trim12", "ca-cpi", "ca-trim", "ca-median", "ca-common"]);
 
 export function Macro({ board }: { board: Board }) {
   const us = board.macro.filter((row) => row.region === "US");
@@ -24,7 +32,7 @@ export function Macro({ board }: { board: Board }) {
       <Prints title="Canada" rows={ca} />
       <Panel title="What “expected” means" kicker="A forecast, not the official number">
         <p className="max-w-2xl text-sm text-muted">
-          Expected is the consensus: the average guess analysts published before that release. Above expected means the official number came in hotter than that guess. Below expected means it was cooler. In line means they matched. A blank cell means the calendar had no forecast. This desk does not fill one in. Next consensus is the guess for the coming release, which is a different vintage from the number already printed. The Fed’s dot plot, Canada’s trimmed and median inflation, and rate decisions stay off this table when the calendar has no forecast.
+          Expected is the consensus: the average guess analysts published before that release. Above expected means the official number came in hotter than that guess. Below expected means it was cooler. In line means they matched. A blank cell means the calendar had no forecast we could line up with that release. This desk does not fill one in. Next consensus is the guess for the coming release, which is a different vintage from the number already printed.
         </p>
       </Panel>
     </div>
@@ -32,11 +40,29 @@ export function Macro({ board }: { board: Board }) {
 }
 
 function History({ charts }: { charts: MacroChart[] }) {
-  if (!charts.length) return <p className="text-sm text-muted">The PCE, income, and spending history did not load.</p>;
+  const canada = charts.filter((chart) => chart.id.startsWith("ca-"));
+  const us = charts.filter((chart) => !chart.id.startsWith("ca-"));
+  if (!charts.length) return <p className="text-sm text-muted">The price, income, and spending history did not load.</p>;
+  return (
+    <div className="grid min-w-0 gap-4">
+      {us.length ? <ChartGrid charts={us} /> : null}
+      {canada.length ? (
+        <>
+          <p className="text-sm text-muted">Canada. The dashed line on the price charts is 2%, the Bank of Canada’s goal. CPI-trim drops the wildest price changes. CPI-median is the middle of the basket.</p>
+          <ChartGrid charts={canada} />
+        </>
+      ) : (
+        <p className="text-sm text-muted">The Canada series did not load.</p>
+      )}
+    </div>
+  );
+}
+
+function ChartGrid({ charts }: { charts: MacroChart[] }) {
   return (
     <div className="grid min-w-0 gap-4 lg:grid-cols-2">
       {charts.map((chart) => (
-        <Panel key={chart.id} className="min-w-0" title={chart.label} kicker={`${chart.asOf} · ${chart.value.toFixed(1)}%`}>
+        <Panel key={chart.id} className="min-w-0" title={chart.label} kicker={`${chart.asOf} · ${chart.value.toFixed(chart.id === "ca-rate" || chart.id === "ca-gdp" ? 2 : 1)}%`}>
           <p className="mb-3 text-sm text-muted">{NOTES[chart.id]}</p>
           <div className="h-56">
             <ResponsiveContainer width="100%" height="100%">

@@ -23,6 +23,10 @@ const MATCHERS: { region: "US" | "Canada"; name: string; event: string }[] = [
   { region: "US", name: "Retail sales", event: "Retail Sales m/m" },
   { region: "Canada", name: "Unemployment", event: "Unemployment Rate" },
   { region: "Canada", name: "CPI, year over year", event: "CPI y/y" },
+  { region: "Canada", name: "CPI-trim", event: "Trimmed CPI y/y" },
+  { region: "Canada", name: "CPI-median", event: "Median CPI y/y" },
+  { region: "Canada", name: "CPI-common", event: "Common CPI y/y" },
+  { region: "Canada", name: "Real GDP", event: "GDP q/q" },
 ];
 
 let cache: { at: number; rows: CalendarEvent[] } | null = null;

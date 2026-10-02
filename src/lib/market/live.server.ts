@@ -55,7 +55,7 @@ const MANAGERS = [
 ];
 
 export async function loadBoard(fresh: boolean, live = false): Promise<Board> {
-  if (!fresh && boardCache && boardCache.data.ratios && boardCache.data.breadth.indexes?.length && "fearCnn" in boardCache.data && boardCache.data.stress?.length >= 2 && (boardCache.data.macroCharts?.length ?? 0) >= 7 && boardCache.data.macro.every((row) => row.aligned) && Date.now() - boardCache.at < 8 * 60 * 1000) {
+  if (!fresh && boardCache && boardCache.data.ratios && boardCache.data.breadth.indexes?.length && "fearCnn" in boardCache.data && boardCache.data.stress?.length >= 2 && (boardCache.data.macroCharts ?? []).some((row) => row.id === "ca-cpi") && boardCache.data.macro.every((row) => row.aligned) && Date.now() - boardCache.at < 8 * 60 * 1000) {
     return boardCache.data;
   }
   const warnings: string[] = [];
@@ -499,9 +499,11 @@ async function loadFred(): Promise<FredPack> {
     "RSAFS",
     "PPIACO",
     "LRUNTTTTCAM156S",
-    "CPALTT01CAM659N",
+    "LREM64TTCAM156S",
+    "NAEXKP01CAQ657S",
   ];
   const ofrPromise = loadOfr();
+  const canadaPromise = loadCanadaBoc();
   const series = new Map<string, Obs[]>();
   await mapPool(ids, 8, async (id) => {
     try {
@@ -512,6 +514,12 @@ async function loadFred(): Promise<FredPack> {
     }
   });
   const ofr = await ofrPromise;
+  const canada = await canadaPromise;
+  series.set("CA_CPI", canada.cpi);
+  series.set("CA_TRIM", canada.trim);
+  series.set("CA_MEDIAN", canada.median);
+  series.set("CA_COMMON", canada.common);
+  series.set("CA_RATE", canada.rate);
 
   const anchor = series.get("DGS10") ?? [];
   if (anchor.length < 5) throw new Error("Treasury yields did not load.");
@@ -590,13 +598,21 @@ const MACRO_CHARTS: { id: string; label: string; source: string; yoy: boolean }[
   { id: "trim12", label: "Trimmed mean PCE, 1-year", source: "PCETRIM12M159SFRBDAL", yoy: false },
   { id: "income", label: "Personal income", source: "PI", yoy: true },
   { id: "spending", label: "Personal spending", source: "PCE", yoy: true },
+  { id: "ca-cpi", label: "Canada CPI", source: "CA_CPI", yoy: false },
+  { id: "ca-trim", label: "Canada CPI-trim", source: "CA_TRIM", yoy: false },
+  { id: "ca-median", label: "Canada CPI-median", source: "CA_MEDIAN", yoy: false },
+  { id: "ca-common", label: "Canada CPI-common", source: "CA_COMMON", yoy: false },
+  { id: "ca-unemployment", label: "Canada unemployment", source: "LRUNTTTTCAM156S", yoy: false },
+  { id: "ca-employment", label: "Canada employment rate", source: "LREM64TTCAM156S", yoy: false },
+  { id: "ca-gdp", label: "Canada real GDP", source: "NAEXKP01CAQ657S", yoy: false },
+  { id: "ca-rate", label: "Canada overnight rate", source: "CA_RATE", yoy: false },
 ];
 
 function buildMacroCharts(series: Map<string, Obs[]>): MacroChart[] {
   const out: MacroChart[] = [];
   for (const spec of MACRO_CHARTS) {
     const obs = series.get(spec.source) ?? [];
-    const points = (spec.yoy ? yearChange(obs) : ratePoints(obs)).filter((point) => point.d >= "2010-01-01");
+    const points = (spec.yoy ? yearChange(obs) : spec.id === "ca-rate" ? monthEnds(obs) : ratePoints(obs)).filter((point) => point.d >= "2010-01-01");
     const last = points.at(-1);
     if (!last) continue;
     out.push({ id: spec.id, label: spec.label, asOf: last.d, value: last.v, points });
@@ -606,6 +622,45 @@ function buildMacroCharts(series: Map<string, Obs[]>): MacroChart[] {
 
 function ratePoints(obs: Obs[]): { d: string; v: number }[] {
   return obs.map((row) => ({ d: row.date, v: round(row.value, 2) }));
+}
+
+function monthEnds(obs: Obs[]): { d: string; v: number }[] {
+  const byMonth = new Map<string, Obs>();
+  for (const row of obs) byMonth.set(row.date.slice(0, 7), row);
+  const points = [...byMonth.values()]
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .map((row) => ({ d: row.date, v: round(row.value, 2) }));
+  const last = obs.at(-1);
+  const tail = points.at(-1);
+  if (last && tail && tail.d !== last.date) points.push({ d: last.date, v: round(last.value, 2) });
+  return points;
+}
+
+async function loadCanadaBoc(): Promise<{ cpi: Obs[]; trim: Obs[]; median: Obs[]; common: Obs[]; rate: Obs[] }> {
+  const empty = { cpi: [], trim: [], median: [], common: [], rate: [] };
+  try {
+    const text = await fetchText(
+      "https://www.bankofcanada.ca/valet/observations/STATIC_TOTALCPICHANGE,CPI_TRIM,CPI_MEDIAN,CPI_COMMON,V39079/json?start_date=2010-01-01",
+      YAHOO_UA,
+      20000,
+    );
+    const json = JSON.parse(text) as { observations?: Array<Record<string, { v?: string } | string>> };
+    const rows = json.observations ?? [];
+    const read = (key: string): Obs[] => {
+      const out: Obs[] = [];
+      for (const row of rows) {
+        const date = typeof row.d === "string" ? row.d : "";
+        const cell = row[key];
+        const value = Number(cell && typeof cell === "object" ? cell.v : NaN);
+        if (!date || !Number.isFinite(value)) continue;
+        out.push({ date, value });
+      }
+      return out;
+    };
+    return { cpi: read("STATIC_TOTALCPICHANGE"), trim: read("CPI_TRIM"), median: read("CPI_MEDIAN"), common: read("CPI_COMMON"), rate: read("V39079") };
+  } catch {
+    return empty;
+  }
 }
 
 function yearChange(obs: Obs[]): { d: string; v: number }[] {
@@ -627,6 +682,7 @@ function shiftMonth(date: string, months: number): string {
 
 function fredStart(id: string): string {
   if (id === "PCEPI" || id === "PCEPILFE" || id === "PI" || id === "PCE" || id.startsWith("PCETRIM")) return "2004-01-01";
+  if (id === "LRUNTTTTCAM156S" || id === "LREM64TTCAM156S" || id === "NAEXKP01CAQ657S") return "2004-01-01";
   if (id.startsWith("DGS") || id === "DFF" || id === "TEDRATE" || id === "NFCI" || id === "BAMLH0A0HYM2") return "1999-01-01";
   return "2016-01-01";
 }
@@ -728,6 +784,7 @@ function buildMacro(series: Map<string, Obs[]>, today: string): MacroPrint[] {
     next: string;
     digits?: number;
     suffix?: string;
+    maxAge?: number;
   }[] = [
     { id: "PAYEMS", region: "US", name: "Nonfarm payrolls", kind: "diff", cadence: "Monthly, first Friday", next: nfp, digits: 0, suffix: "k" },
     { id: "UNRATE", region: "US", name: "Unemployment", kind: "level", cadence: "With the payrolls report", next: nfp, suffix: "%" },
@@ -739,7 +796,13 @@ function buildMacro(series: Map<string, Obs[]>, today: string): MacroPrint[] {
     { id: "A191RL1Q225SBEA", region: "US", name: "Real GDP", kind: "level", cadence: "Quarterly, annualized", next: "Next GDP window", suffix: "%" },
     { id: "RSAFS", region: "US", name: "Retail sales", kind: "mom", cadence: "Monthly", next: "Next mid-month window" },
     { id: "LRUNTTTTCAM156S", region: "Canada", name: "Unemployment", kind: "level", cadence: "Labour Force Survey", next: "Early-month window", suffix: "%" },
-    { id: "CPALTT01CAM659N", region: "Canada", name: "CPI, year over year", kind: "level", cadence: "Monthly", next: "Third-week window", suffix: "%" },
+    { id: "LREM64TTCAM156S", region: "Canada", name: "Employment rate", kind: "level", cadence: "Share of people age 15 to 64 with a job", next: "With the labour survey", suffix: "%" },
+    { id: "CA_CPI", region: "Canada", name: "CPI, year over year", kind: "level", cadence: "Monthly, Statistics Canada", next: "Third-week window", suffix: "%" },
+    { id: "CA_TRIM", region: "Canada", name: "CPI-trim", kind: "level", cadence: "Bank of Canada, drops extreme price moves", next: "With CPI", suffix: "%" },
+    { id: "CA_MEDIAN", region: "Canada", name: "CPI-median", kind: "level", cadence: "Bank of Canada, the middle price change", next: "With CPI", suffix: "%" },
+    { id: "CA_COMMON", region: "Canada", name: "CPI-common", kind: "level", cadence: "Bank of Canada, the shared price move", next: "With CPI", suffix: "%" },
+    { id: "NAEXKP01CAQ657S", region: "Canada", name: "Real GDP", kind: "level", cadence: "Quarter versus the previous quarter", next: "About two months after the quarter", digits: 2, suffix: "%", maxAge: 220 },
+    { id: "CA_RATE", region: "Canada", name: "Overnight rate", kind: "level", cadence: "Bank of Canada policy rate", next: "Eight times a year", digits: 2, suffix: "%" },
   ];
   const prints: MacroPrint[] = [];
   for (const spec of specs) {
@@ -747,7 +810,7 @@ function buildMacro(series: Map<string, Obs[]>, today: string): MacroPrint[] {
     if (obs.length < 2) continue;
     const last = obs[obs.length - 1];
     const ageDays = (Date.parse(today) - Date.parse(last.date)) / 86400000;
-    if (ageDays > 120) continue;
+    if (ageDays > (spec.maxAge ?? 120)) continue;
     const prev = obs[obs.length - 2];
     const before = obs[obs.length - 3];
     let actual = "";
