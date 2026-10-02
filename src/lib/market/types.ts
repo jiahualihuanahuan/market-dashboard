@@ -164,7 +164,7 @@ export type Board = {
   warnings: string[];
 };
 
-export type Holding = { issuer: string; value: number; shares: number };
+export type Holding = { issuer: string; value: number; shares: number; weight?: number };
 
 export type ManagerBook = {
   name: string;

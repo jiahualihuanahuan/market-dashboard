@@ -20,6 +20,8 @@ export type HolderSearch = {
   source: string;
   managerCount: number;
   issuerCount: number;
+  managerTotal: number;
+  stockTotal: number;
   managers: HolderManager[];
   aggregate: HolderAggregate[];
 };

@@ -40,7 +40,7 @@ function Holders() {
     <>
       <Panel title="Every 13F filer" kicker={data ? `${data.managerCount.toLocaleString("en-US")} institutions · quarter ended ${data.quarter || "—"}` : "SEC quarterly file"}>
         <p className="max-w-3xl text-sm text-muted">
-          A CIK is the SEC’s id number for a filer. This list is every institution in the SEC’s latest Form 13F data set, not a hand-picked group. Search a name or a CIK to open that institution’s stocks. The aggregate is every stock those filings added together. Options are left out. The file is as of the quarter end, and it usually arrives about 45 days later. Dollars are as filed, not today’s price.
+          A CIK is the SEC’s id number for a filer. This list is every institution in the SEC’s latest Form 13F data set, not a hand-picked group. Search a name or a CIK to open that institution’s stocks. The aggregate is every stock those filings added together. The percent next to an institution or a stock is its share of all reported stock dollars. Inside one institution, the percent is that stock’s share of the book. Options are left out. The file is as of the quarter end, and it usually arrives about 45 days later. Dollars are as filed, not today’s price.
         </p>
         <label className="mt-4 block text-sm">
           <span className="text-muted">Institution, CIK, or stock</span>
@@ -61,7 +61,7 @@ function Holders() {
                         <span className="block">{manager.name}</span>
                         <span className="font-mono text-xs text-muted">CIK {manager.cik}</span>
                       </span>
-                      <span className="font-mono tabular-nums text-muted">${fmtCompact(manager.value)}</span>
+                      <span className="font-mono tabular-nums text-muted">${fmtCompact(manager.value)} · {share(manager.value, data.managerTotal)}</span>
                     </button>
                   </li>
                 ))}
@@ -77,7 +77,7 @@ function Holders() {
                       <span className="block">{row.issuer}</span>
                       <span className="text-xs text-muted">{row.managers.toLocaleString("en-US")} institutions{row.cusip ? ` · ${row.cusip}` : ""}</span>
                     </span>
-                    <span className="font-mono tabular-nums text-muted">${fmtCompact(row.value)}</span>
+                    <span className="font-mono tabular-nums text-muted">${fmtCompact(row.value)} · {share(row.value, data.stockTotal)}</span>
                   </li>
                 ))}
               </ul>
@@ -105,7 +105,7 @@ function Holders() {
                 {book.data.holdings.map((holding) => (
                   <li key={holding.issuer} className="flex items-baseline justify-between gap-3 border-t border-line py-2 text-sm">
                     <span>{holding.issuer}</span>
-                    <span className="font-mono tabular-nums text-muted">${fmtCompact(holding.value)}</span>
+                    <span className="font-mono tabular-nums text-muted">${fmtCompact(holding.value)} · {share(holding.value, book.data.value)}</span>
                   </li>
                 ))}
               </ul>
@@ -115,6 +115,13 @@ function Holders() {
       ) : null}
     </>
   );
+}
+
+function share(part: number, total: number): string {
+  if (!(total > 0) || !Number.isFinite(part)) return "—";
+  const value = (part / total) * 100;
+  const digits = value >= 10 ? 1 : 2;
+  return `${value.toFixed(digits)}%`;
 }
 
 function Famous() {
@@ -185,7 +192,7 @@ function Famous() {
               {book.holdings.map((holding) => (
                 <li key={holding.issuer} className="flex items-baseline justify-between gap-3 border-t border-line py-2 text-sm">
                   <span>{holding.issuer}</span>
-                  <span className="font-mono tabular-nums text-muted">{fmtCompact(holding.value)}</span>
+                  <span className="font-mono tabular-nums text-muted">{fmtCompact(holding.value)}{holding.weight == null ? "" : ` · ${share(holding.weight, 100)}`}</span>
                 </li>
               ))}
             </ul>

@@ -900,12 +900,14 @@ async function loadManager(manager: (typeof MANAGERS)[number]): Promise<ManagerB
       holdings = parseInfoTable(xml);
       if (holdings.length) break;
     }
+    const total = holdings.reduce((sum, row) => sum + row.value, 0);
+    const weighted = holdings.map((row) => ({ ...row, weight: total > 0 ? (row.value / total) * 100 : 0 }));
     return {
       ...empty,
       filed: String(recent.filingDate[best]),
       period: String(recent.reportDate?.[best] ?? ""),
       url: page,
-      holdings: holdings.slice(0, 8),
+      holdings: weighted.slice(0, 8),
       error: holdings.length ? null : "Filing found, holdings table did not parse.",
     };
   } catch (error) {

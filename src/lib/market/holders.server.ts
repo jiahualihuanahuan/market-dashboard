@@ -94,6 +94,8 @@ function filterDirectory(data: Directory, query: string): HolderSearch {
     source: data.source,
     managerCount: data.managers.length,
     issuerCount: data.aggregate.length,
+    managerTotal: data.managers.reduce((sum, manager) => sum + manager.value, 0),
+    stockTotal: data.aggregate.reduce((sum, row) => sum + row.value, 0),
     managers,
     aggregate,
   };
@@ -190,6 +192,8 @@ async function buildDirectory(): Promise<Directory> {
     source,
     managerCount: managerRows.length,
     issuerCount: issuerRows.length,
+    managerTotal: managerRows.reduce((sum, manager) => sum + manager.value, 0),
+    stockTotal: issuerRows.reduce((sum, row) => sum + row.value, 0),
     managers: managerRows,
     aggregate: issuerRows,
   };
