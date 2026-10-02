@@ -273,8 +273,9 @@ async function ensureZip(): Promise<string> {
 }
 
 function parseInfoTable(xml: string): HolderBook["holdings"] {
+  const plain = xml.replace(/<(\/?)[A-Za-z0-9]+:/g, "<$1");
   const totals = new Map<string, { value: number; shares: number }>();
-  for (const block of xml.split(/<infoTable>/i).slice(1)) {
+  for (const block of plain.split(/<infoTable>/i).slice(1)) {
     const issuer = decode(block.match(/<nameOfIssuer>([^<]+)/i)?.[1] ?? "").trim();
     const title = block.match(/<titleOfClass>([^<]+)/i)?.[1] ?? "";
     const value = Number(block.match(/<value>([^<]+)/i)?.[1] ?? "");

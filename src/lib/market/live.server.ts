@@ -913,7 +913,8 @@ async function loadManager(manager: (typeof MANAGERS)[number]): Promise<ManagerB
 }
 
 function parseInfoTable(xml: string): ManagerBook["holdings"] {
-  const blocks = xml.split(/<infoTable>/i).slice(1);
+  const plain = xml.replace(/<(\/?)[A-Za-z0-9]+:/g, "<$1");
+  const blocks = plain.split(/<infoTable>/i).slice(1);
   const totals = new Map<string, { value: number; shares: number }>();
   for (const block of blocks) {
     const issuer = decodeXml(/<nameOfIssuer>([^<]+)/i.exec(block)?.[1] ?? "").trim();
