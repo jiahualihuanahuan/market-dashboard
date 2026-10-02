@@ -47,11 +47,8 @@ const TENORS: { id: string; label: string; years: number }[] = [
 
 const MANAGERS = [
   { name: "Berkshire Hathaway", who: "Buffett", cik: "0001067983", token: "BERKSHIRE" },
-  { name: "Pershing Square", who: "Ackman", cik: "0001336528", token: "PERSHING" },
-  { name: "Soros Fund Management", who: "Soros", cik: "0001029160", token: "SOROS" },
-  { name: "Appaloosa Management", who: "Tepper", cik: "0001006438", token: "APPALOOSA" },
-  { name: "Tiger Global", who: "Coleman", cik: "0001167483", token: "TIGER GLOBAL" },
-  { name: "Baupost", who: "Klarman", cik: "0001061768", token: "BAUPOST" },
+  { name: "Himalaya Capital", who: "Li Lu", cik: "0001709323", token: "HIMALAYA" },
+  { name: "Duquesne Family Office", who: "Druckenmiller", cik: "0001536411", token: "DUQUESNE" },
 ];
 
 export async function loadBoard(fresh: boolean, live = false): Promise<Board> {
