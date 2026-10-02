@@ -62,9 +62,19 @@ function FrontierDesk({
   const tooCalm = cap + 0.05 < model.calmest.vol;
   const tooWild = cap > frontierTop + 0.05;
   const risky = !tooWild && chosen.vol > model.maxSharpe.vol + 0.2;
+  const lineVols = model.frontier.map((point) => point.vol);
+  const lineMin = Math.min(...lineVols);
+  const lineMax = Math.max(...lineVols);
+  const span = Math.max(lineMax - lineMin, 4);
+  const chartMin = Math.max(0, Math.floor((lineMin - span * 0.12) * 2) / 2);
+  const chartMax = Math.ceil((lineMax + span * 0.18) * 2) / 2;
+  const lineRets = model.frontier.map((point) => point.ret);
+  const retPad = Math.max(1, (Math.max(...lineRets) - Math.min(...lineRets)) * 0.18);
+  const chartRetMin = Math.floor(Math.min(...lineRets) - retPad);
+  const chartRetMax = Math.ceil(Math.max(...lineRets) + retPad);
   const dots = model.assets.map((asset, index) => ({ ...asset, label: model.labels[index] ?? "" }));
   const spots = sweetSpots(model.frontier);
-  const chartMax = Math.ceil(Math.max(widest, cap) + 1);
+  const pastTheLine = dots.filter((dot) => dot.vol > chartMax);
 
   return (
     <div className="grid gap-4">
@@ -153,8 +163,8 @@ function FrontierDesk({
             <ResponsiveContainer width="100%" height="100%">
               <ComposedChart data={model.frontier} margin={{ top: 28, right: 16, left: 0, bottom: 8 }}>
                 <CartesianGrid stroke="var(--color-line)" vertical={false} />
-                <XAxis dataKey="vol" type="number" domain={[0, chartMax]} tickFormatter={(value) => `${value}%`} tick={{ fill: "var(--color-muted)", fontSize: 11 }} />
-                <YAxis dataKey="ret" type="number" tickFormatter={(value) => `${value}%`} tick={{ fill: "var(--color-muted)", fontSize: 11 }} width={48} />
+                <XAxis dataKey="vol" type="number" domain={[chartMin, chartMax]} allowDataOverflow tickFormatter={(value) => `${value}%`} tick={{ fill: "var(--color-muted)", fontSize: 11 }} />
+                <YAxis dataKey="ret" type="number" domain={[chartRetMin, chartRetMax]} allowDataOverflow tickFormatter={(value) => `${value}%`} tick={{ fill: "var(--color-muted)", fontSize: 11 }} width={48} />
                 <Tooltip
                   {...tooltipStyle}
                   formatter={(value, name) => [typeof value === "number" ? `${value.toFixed(1)}%` : value, name === "ret" ? "Return" : String(name)]}
@@ -163,18 +173,18 @@ function FrontierDesk({
                     return row?.label ? row.label : `Volatility ${row?.vol?.toFixed(1) ?? ""}%`;
                   }}
                 />
-                <ReferenceLine x={cap} stroke="var(--color-warn)" strokeDasharray="4 4" />
+                {cap <= chartMax ? <ReferenceLine x={cap} stroke="var(--color-warn)" strokeDasharray="4 4" /> : null}
                 <Line
-                  type="monotone"
+                  type="linear"
                   dataKey="ret"
                   name="Frontier"
                   stroke="var(--color-up)"
                   strokeWidth={2.5}
-                  dot={{ r: 3, fill: "var(--color-up)", stroke: "var(--color-bg)", strokeWidth: 1 }}
-                  activeDot={{ r: 5 }}
+                  dot={false}
+                  activeDot={{ r: 4 }}
                   isAnimationActive={false}
                 />
-                <Scatter data={dots} dataKey="ret" name="Asset" fill="var(--color-fg)">
+                <Scatter data={dots.filter((dot) => dot.vol >= chartMin && dot.vol <= chartMax)} dataKey="ret" name="Asset" fill="var(--color-fg)">
                   <LabelList dataKey="label" position="top" fill="var(--color-muted)" fontSize={11} />
                 </Scatter>
                 <Scatter data={spots} dataKey="ret" name="Sweet spot" shape={SweetDot}>
@@ -185,7 +195,8 @@ function FrontierDesk({
             </ResponsiveContainer>
           </div>
           <p className="mt-2 text-sm text-muted">
-            The green line is the corrected frontier: the highest blended return at each level of shrunk bumpiness, with no holding above {model.weightCap.toFixed(0)}%. The labeled spots ignore the volatility slider. They are the best Sharpe, Sortino, and Calmar on that capped line. The red dot is the mix inside your ceiling. The dashed line is that ceiling.
+            The green line is the corrected frontier, drawn across the bumpiness it actually covers. The {model.weightCap.toFixed(0)}% cap is why it does not run out to a single very bumpy asset. The labeled spots ignore the volatility slider. They are the best Sharpe, Sortino, and Calmar on that line. The red dot is the mix inside your ceiling. The dashed line is that ceiling when it falls on this graph.
+            {pastTheLine.length ? ` ${pastTheLine.map((dot) => `${dot.label} (${dot.vol.toFixed(0)}% volatility)`).join(", ")} ${pastTheLine.length === 1 ? "is" : "are"} bumpier than this line can reach, so ${pastTheLine.length === 1 ? "it is" : "they are"} left off the plot.` : ""}
           </p>
           <div className="mt-3 grid gap-2 sm:grid-cols-3">
             {spots.map((spot) => (

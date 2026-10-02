@@ -99,7 +99,7 @@ export function buildFrontier(series: FrontierSeries): FrontierModel {
       bestReturn = row.ret;
     }
   }
-  const frontier = thin(chosen, 36).map((row) => score(row.weights, mu, percentCov, series.billYield, series.returns));
+  const frontier = evenByVol(chosen, 48).map((row) => score(row.weights, mu, percentCov, series.billYield, series.returns));
   const tangency = cloud.reduce((best, row) => {
     const sharpe = row.vol > 0.2 ? (row.ret - series.billYield) / row.vol : -Infinity;
     return sharpe > best.sharpe ? { sharpe, weights: row.weights } : best;
@@ -175,11 +175,20 @@ function score(weights: number[], mu: number[], cov: number[][], rf: number, ret
   return point(weights, mu, cov, rf, ratios(weights, returns));
 }
 
-function thin<T extends { ret: number; vol: number }>(rows: T[], count: number): T[] {
-  if (rows.length <= count) return rows;
+function evenByVol<T extends { vol: number }>(rows: T[], count: number): T[] {
+  if (rows.length <= 2) return rows;
+  const min = rows[0].vol;
+  const max = rows[rows.length - 1].vol;
+  if (!(max > min)) return [rows[0], rows[rows.length - 1]];
   const out: T[] = [];
-  const last = rows.length - 1;
-  for (let index = 0; index < count; index += 1) out.push(rows[Math.round((last * index) / (count - 1))]);
+  let cursor = 0;
+  for (let index = 0; index < count; index += 1) {
+    const target = min + ((max - min) * index) / (count - 1);
+    while (cursor < rows.length - 1 && Math.abs(rows[cursor + 1].vol - target) <= Math.abs(rows[cursor].vol - target)) cursor += 1;
+    const pick = rows[cursor];
+    if (!out.length || out[out.length - 1] !== pick) out.push(pick);
+  }
+  if (out[out.length - 1] !== rows[rows.length - 1]) out.push(rows[rows.length - 1]);
   return out;
 }
 

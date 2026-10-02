@@ -11,7 +11,7 @@ export const FRONTIER_ASSETS = [
   { symbol: "BIL", label: "Short-term Treasuries" },
 ];
 
-const MODEL = 3;
+const MODEL = 4;
 const GOLD_TONNES = 216_265;
 const OZ_PER_TONNE = 32_150.7466;
 const REAL_GROWTH = 2;
