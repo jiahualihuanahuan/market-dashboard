@@ -98,6 +98,7 @@ function filterDirectory(data: Directory, query: string): HolderSearch {
     stockTotal: data.aggregate.reduce((sum, row) => sum + row.value, 0),
     managers,
     aggregate,
+    widelyHeld: data.widelyHeld,
   };
 }
 
@@ -186,6 +187,10 @@ async function buildDirectory(): Promise<Directory> {
   const issuerRows = [...aggregate.values()]
     .map(({ last: _last, names, ...row }) => ({ ...row, issuer: commonName(names, row.issuer) }))
     .sort((a, b) => b.value - a.value || a.issuer.localeCompare(b.issuer));
+  const widelyHeld = issuerRows
+    .filter((row) => row.managers >= 2)
+    .sort((a, b) => b.managers - a.managers || b.value - a.value)
+    .slice(0, 100);
   const quarter = managerRows[0]?.period || "";
   return {
     quarter,
@@ -196,6 +201,7 @@ async function buildDirectory(): Promise<Directory> {
     stockTotal: issuerRows.reduce((sum, row) => sum + row.value, 0),
     managers: managerRows,
     aggregate: issuerRows,
+    widelyHeld,
   };
 }
 

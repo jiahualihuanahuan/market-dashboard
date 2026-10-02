@@ -24,6 +24,7 @@ export type HolderSearch = {
   stockTotal: number;
   managers: HolderManager[];
   aggregate: HolderAggregate[];
+  widelyHeld: HolderAggregate[];
 };
 
 export type HolderBook = {

@@ -5,7 +5,7 @@ import { fmtCompact } from "@/lib/market/format";
 import { useDesk } from "@/lib/market/settings";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Empty, Panel } from "@/components/dashboard/bits";
+import { Panel } from "@/components/dashboard/bits";
 
 export function Smart() {
   return (
@@ -207,6 +207,11 @@ function Famous() {
     queryFn: () => getSmartMoney({ data: { fresh: false } }),
     staleTime: 30 * 60 * 1000,
   });
+  const universe = useQuery({
+    queryKey: ["holders", ""],
+    queryFn: () => getHolders({ data: { query: "" } }),
+    staleTime: 6 * 60 * 60 * 1000,
+  });
 
   if (query.isPending) {
     return <Panel title="Reading SEC filings" kicker="13Fs and the last few days of Form 4s"><p className="text-sm text-muted">This usually takes a few seconds.</p></Panel>;
@@ -237,20 +242,25 @@ function Famous() {
           Refresh filings
         </Button>
       </div>
-      <Panel title="Owned by more than one of these books" kicker="Top holdings only, so this is overlap inside the disclosed leaders, not the whole 13F.">
-        {data.overlap.length === 0 ? (
-          <Empty title="No overlap in the top lines" body="The parsed leaders do not share a name, or the filings did not parse." />
-        ) : (
-          <ul className="grid gap-2">
-            {data.overlap.map((row) => (
-              <li key={row.issuer} className="flex flex-col gap-1 border-b border-line py-2 sm:flex-row sm:items-baseline sm:justify-between">
-                <span className="font-medium">{row.issuer}</span>
-                <span className="text-sm text-muted">{row.managers.join(" · ")}</span>
-                <span className="font-mono text-sm tabular-nums">{fmtCompact(row.value)}</span>
+      <Panel title="Held across every filer" kicker={universe.data ? `${universe.data.managerCount.toLocaleString("en-US")} institutions · quarter ended ${universe.data.quarter || "—"}` : "The whole 13F file"}>
+        <p className="mb-3 text-sm text-muted">
+          This adds up every institution in the quarterly file, not just the three cards below. A stock is listed once at least two filers report it. The count is how many institutions hold it. The dollars are what they reported, added together.
+        </p>
+        {universe.isPending ? <p className="text-sm text-muted">Reading the SEC file. The first time takes about a minute.</p> : null}
+        {universe.isError ? <p className="text-sm text-muted">{universe.error instanceof Error ? universe.error.message : "The 13F file did not load."}</p> : null}
+        {universe.data ? (
+          <ul className="max-h-64 overflow-y-auto overscroll-contain rounded-md border border-line px-2">
+            {universe.data.widelyHeld.map((row) => (
+              <li key={row.cusip || row.issuer} className="flex items-baseline justify-between gap-3 border-b border-line py-2 text-sm">
+                <span>
+                  <span className="block font-medium">{row.issuer}</span>
+                  <span className="text-xs text-muted">{row.managers.toLocaleString("en-US")} institutions</span>
+                </span>
+                <span className="font-mono tabular-nums text-muted">${fmtCompact(row.value)} · {share(row.value, universe.data.stockTotal)}</span>
               </li>
             ))}
           </ul>
-        )}
+        ) : null}
       </Panel>
       <div className="grid gap-4 lg:grid-cols-2">
         {data.books.map((book) => (
