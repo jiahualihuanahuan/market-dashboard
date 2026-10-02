@@ -117,6 +117,17 @@ export const getValuation = createServerFn({ method: "GET" })
     return loadValuation(data.symbol, data.fresh);
   });
 
+export const getCommodityChart = createServerFn({ method: "GET" })
+  .validator((input: unknown) => {
+    const symbol = typeof input === "object" && input && "symbol" in input ? String((input as { symbol?: string }).symbol ?? "") : "";
+    const live = typeof input === "object" && input !== null && "live" in input ? (input as { live?: boolean }).live === true : false;
+    return { symbol, live };
+  })
+  .handler(async ({ data }) => {
+    const { loadCommodityChart } = await import("./commodity.server");
+    return loadCommodityChart(data.symbol, data.live);
+  });
+
 export const getDark = createServerFn({ method: "GET" })
   .validator((input: unknown) => {
     const live = typeof input === "object" && input !== null && "live" in input

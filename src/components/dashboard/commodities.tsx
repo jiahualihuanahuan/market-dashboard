@@ -1,10 +1,12 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   Area,
   AreaChart,
   CartesianGrid,
   ComposedChart,
   Line,
+  LineChart,
   ReferenceLine,
   ResponsiveContainer,
   Tooltip,
@@ -17,6 +19,9 @@ import { fmtPrice } from "@/lib/market/format";
 import { Panel, Tone, Heat, tooltipStyle } from "@/components/dashboard/bits";
 import { cn } from "@/lib/utils";
 import { useNavigate, useSearch } from "@tanstack/react-router";
+import { getCommodityChart } from "@/lib/market/board.functions";
+import { COMMODITY_CHARTS } from "@/lib/market/commodity";
+import { RANGES, percentChange, sliceSeries, type RangeId } from "@/lib/market/tape";
 
 const SPOTS = ["GC=F", "SI=F", "CL=F", "BZ=F", "HG=F", "NG=F", "DX-Y.NYB"];
 
@@ -43,6 +48,7 @@ export function Commodities({ board }: { board: Board }) {
 
   return (
     <div className="grid gap-4">
+      <CommodityPrice />
       <Panel title="Commodities and the dollar" kicker="The latest finished trading session">
         <p className="mb-3 text-sm text-muted">A front contract is the futures month closest to delivery, the usual stand-in for the spot price. The dollar line is the dollar index, a basket against other currencies.</p>
         <div className="grid gap-2 sm:grid-cols-2">
@@ -147,6 +153,103 @@ export function Commodities({ board }: { board: Board }) {
         </Panel>
       ) : null}
     </div>
+  );
+}
+
+function CommodityPrice() {
+  const [symbol, setSymbol] = useState("GC=F");
+  const [range, setRange] = useState<RangeId>("y1");
+  const liveRef = useRef(false);
+  const query = useQuery({
+    queryKey: ["commodity-chart", symbol],
+    queryFn: () => {
+      const live = liveRef.current;
+      liveRef.current = false;
+      return getCommodityChart({ data: { symbol, live } });
+    },
+    staleTime: 60_000,
+  });
+  useEffect(() => {
+    const onRefresh = () => {
+      liveRef.current = true;
+      void query.refetch();
+    };
+    window.addEventListener("desk-refresh", onRefresh);
+    return () => window.removeEventListener("desk-refresh", onRefresh);
+  }, [query]);
+  const chart = query.data;
+  const line = useMemo(() => {
+    if (!chart) return [];
+    if (range === "day" && chart.day.length > 1) return chart.day;
+    return sliceSeries(chart.daily, range === "day" ? "week" : range);
+  }, [chart, range]);
+  const change = useMemo(() => {
+    if (!chart) return null;
+    if (range === "day" && chart.day.length > 1) {
+      const first = chart.day[0]?.v;
+      const last = chart.day[chart.day.length - 1]?.v;
+      if (!(first > 0) || !(last > 0)) return null;
+      return Math.round((last / first - 1) * 10000) / 100;
+    }
+    return percentChange(chart.daily.map((point) => point.v), chart.daily.map((point) => point.d), range === "day" ? "week" : range);
+  }, [chart, range]);
+  const label = chart?.label ?? COMMODITY_CHARTS.find((item) => item.symbol === symbol)?.label ?? "Commodity";
+  return (
+    <Panel className="min-w-0" title={label} kicker="Price over the window you pick">
+      <p className="mb-3 text-sm text-muted">
+        {range === "day"
+          ? chart && chart.day.length > 1
+            ? "Day is the latest session in five-minute steps."
+            : "Day falls back to the last week of closes when the session tape is missing."
+          : "This window is daily closes, the same ranges as the index chart."}{" "}
+        {change == null ? "" : <Tone value={change} />}
+      </p>
+      <div className="mb-3 flex gap-2 overflow-x-auto">
+        {COMMODITY_CHARTS.map((item) => (
+          <button
+            key={item.symbol}
+            type="button"
+            onClick={() => setSymbol(item.symbol)}
+            className={cn(
+              "h-11 shrink-0 rounded-full border px-3 text-sm",
+              symbol === item.symbol ? "border-fg bg-elevated text-fg" : "border-line text-muted",
+            )}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
+      <div className="flex gap-2 overflow-x-auto">
+        {RANGES.map(([id, name]) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => setRange(id)}
+            className={cn(
+              "h-11 shrink-0 rounded-full border px-3 text-sm",
+              range === id ? "border-fg bg-elevated text-fg" : "border-line text-muted",
+            )}
+          >
+            {name}
+          </button>
+        ))}
+      </div>
+      {query.isPending ? <p className="mt-3 text-sm text-muted">Reading the price history.</p> : null}
+      {query.isError ? <p className="mt-3 text-sm text-muted">{query.error instanceof Error ? query.error.message : "The price history did not load."}</p> : null}
+      {line.length > 1 ? (
+        <div className="mt-3 h-72">
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={line} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+              <CartesianGrid stroke="var(--color-line)" vertical={false} />
+              <XAxis dataKey="d" tick={{ fill: "var(--color-subtle)", fontSize: 11 }} minTickGap={28} />
+              <YAxis domain={["auto", "auto"]} tick={{ fill: "var(--color-subtle)", fontSize: 11 }} width={64} tickFormatter={(value) => fmtPrice(Number(value))} />
+              <Tooltip {...tooltipStyle} formatter={(value) => [fmtPrice(typeof value === "number" ? value : null), label]} />
+              <Line dataKey="v" name={label} stroke="var(--color-fg)" dot={false} strokeWidth={2} isAnimationActive={false} />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      ) : null}
+    </Panel>
   );
 }
 
