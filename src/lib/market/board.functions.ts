@@ -112,3 +112,10 @@ export const getSmartMoney = createServerFn({ method: "GET" })
     const { loadSmartMoney } = await import("./live.server");
     return loadSmartMoney(data.fresh);
   });
+
+export const getRotation = createServerFn({ method: "GET" })
+  .validator(freshFlag)
+  .handler(async () => {
+    const { loadRotation } = await import("./rotation.server");
+    return loadRotation();
+  });
