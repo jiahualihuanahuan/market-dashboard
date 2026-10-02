@@ -3,13 +3,19 @@ import { percentChange, type BreadthPoint, type RangeId, type Tape, type TapeInd
 
 const UA = "Mozilla/5.0 (compatible; MarketDesk/1.0)";
 const RANGES: RangeId[] = ["day", "week", "month", "quarter", "half", "ytd", "y1", "y3", "y5", "y10"];
-const US: { symbol: string; label: string }[] = [
+const INDEXES: { symbol: string; label: string; note?: string }[] = [
   { symbol: "^GSPC", label: "S&P 500" },
-  { symbol: "^DJI", label: "Dow" },
+  { symbol: "^DJI", label: "Dow", note: "The Dow counts a high share price more than a large company. Most other indexes do the opposite." },
   { symbol: "^IXIC", label: "Nasdaq" },
   { symbol: "^NDX", label: "Nasdaq-100" },
   { symbol: "^RUT", label: "Russell 2000" },
   { symbol: "^NYA", label: "NYSE" },
+  { symbol: "^STOXX50E", label: "Euro Stoxx 50" },
+  { symbol: "^FTSE", label: "FTSE 100" },
+  { symbol: "^GDAXI", label: "DAX" },
+  { symbol: "^N225", label: "Nikkei 225" },
+  { symbol: "^AXJO", label: "ASX 200" },
+  { symbol: "^GSPTSE", label: "S&P/TSX" },
 ];
 
 let tapeCache: { at: number; data: Tape } | null = null;
@@ -38,7 +44,7 @@ const timeFmt = new Intl.DateTimeFormat("en-US", {
 export async function loadTape(live = false): Promise<Tape> {
   if (!live && tapeCache && Date.now() - tapeCache.at < 30 * 60 * 1000) return tapeCache.data;
   const [indexes, day, breadth] = await Promise.all([
-    mapPool(US, 4, (item) => loadIndex(item.symbol, item.label, live)),
+    mapPool(INDEXES, 4, (item) => loadIndex(item.symbol, item.label, live, item.note)),
     live ? loadIntraday("^GSPC") : Promise.resolve([] as TapePoint[]),
     cachedBreadth(),
   ]);
@@ -59,7 +65,7 @@ export async function loadTape(live = false): Promise<Tape> {
   return data;
 }
 
-async function loadIndex(symbol: string, label: string, live: boolean): Promise<(TapeIndex & { points: TapePoint[]; quoteTime: string | null }) | null> {
+async function loadIndex(symbol: string, label: string, live: boolean, note?: string): Promise<(TapeIndex & { points: TapePoint[]; quoteTime: string | null }) | null> {
   const hist = await dailyHistory(symbol);
   if (!hist) return null;
   let points = hist.points.map((point) => ({ ...point }));
@@ -89,7 +95,7 @@ async function loadIndex(symbol: string, label: string, live: boolean): Promise<
   const changes = {} as Record<RangeId, number | null>;
   for (const range of RANGES) changes[range] = percentChange(closes, dates, range);
   const quoteTime = live && quoteUnix ? clockFmt.format(new Date(quoteUnix * 1000)) : null;
-  return { symbol, label, price: points[points.length - 1].v, changes, points: symbol === "^GSPC" ? points : [], quoteTime };
+  return { symbol, label, price: points[points.length - 1].v, changes, points: symbol === "^GSPC" ? points : [], quoteTime, note };
 }
 
 async function dailyHistory(symbol: string): Promise<{ at: number; points: TapePoint[]; price: number | null; time: number | null } | null> {

@@ -14,9 +14,11 @@ import {
 import type { Board, ChainRatio, Quote } from "@/lib/market/types";
 import { CHAINS, UNIVERSE, UNIVERSE_BY_SYMBOL, type ChainId } from "@/lib/market/universe";
 import { fmtPrice } from "@/lib/market/format";
-import { Panel, Tone, tooltipStyle } from "@/components/dashboard/bits";
+import { Panel, Tone, Heat, tooltipStyle } from "@/components/dashboard/bits";
 import { cn } from "@/lib/utils";
 import { useNavigate, useSearch } from "@tanstack/react-router";
+
+const SPOTS = ["GC=F", "SI=F", "CL=F", "BZ=F", "HG=F", "NG=F", "DX-Y.NYB"];
 
 export function Commodities({ board }: { board: Board }) {
   const search = useSearch({ from: "/" });
@@ -29,8 +31,25 @@ export function Commodities({ board }: { board: Board }) {
     .filter((quote): quote is Quote => !!quote);
   const selected = by.get(search.symbol);
 
+  const spots = SPOTS.map((symbol) => by.get(symbol)).filter((quote): quote is Quote => !!quote);
+
   return (
     <div className="grid gap-4">
+      <Panel title="Commodities and the dollar" kicker="The latest finished trading session">
+        <p className="mb-3 text-sm text-muted">A front contract is the futures month closest to delivery, the usual stand-in for the spot price. The dollar line is the dollar index, a basket against other currencies.</p>
+        <div className="grid gap-2 sm:grid-cols-2">
+          {spots.map((quote) => (
+            <div key={quote.symbol} className="flex items-center justify-between gap-3 border-b border-line py-2">
+              <div>
+                <p className="text-sm">{UNIVERSE_BY_SYMBOL.get(quote.symbol)?.label}</p>
+                <p className="font-mono text-xs text-muted">{quote.symbol}</p>
+              </div>
+              <p className="font-mono tabular-nums">{fmtPrice(quote.price)}</p>
+              <Heat value={quote.d1} />
+            </div>
+          ))}
+        </div>
+      </Panel>
       <Panel title={active.label} kicker={active.blurb}>
         <div className="mb-4 flex gap-2 overflow-x-auto">
           {CHAINS.map((item) => (

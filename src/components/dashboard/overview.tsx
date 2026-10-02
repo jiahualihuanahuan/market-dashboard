@@ -2,9 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Bar, BarChart, CartesianGrid, Cell, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import type { Board, CnnFear, Quote } from "@/lib/market/types";
-import { UNIVERSE_BY_SYMBOL } from "@/lib/market/universe";
 import { fmtBp, fmtCompact, fmtPrice } from "@/lib/market/format";
-import { Empty, Gauge, Heat, Panel, Tone, tooltipStyle } from "@/components/dashboard/bits";
+import { Empty, Gauge, Panel, Tone, tooltipStyle } from "@/components/dashboard/bits";
 import { getTape } from "@/lib/market/board.functions";
 import { RANGES, sliceSeries, type RangeId, type Tape } from "@/lib/market/tape";
 import { cn } from "@/lib/utils";
@@ -44,8 +43,6 @@ const CNN_PARTS: Record<string, { label: string; plain: string }> = {
 
 export function Overview({ board }: { board: Board }) {
   const by = new Map(board.quotes.map((quote) => [quote.symbol, quote]));
-  const indices = board.quotes.filter((quote) => UNIVERSE_BY_SYMBOL.get(quote.symbol)?.group === "index");
-  const commodities = ["GC=F", "SI=F", "CL=F", "BZ=F", "HG=F", "NG=F", "DX-Y.NYB"].map((symbol) => by.get(symbol)).filter((q): q is Quote => !!q);
   const chart = mergeCharts(CHARTS.map((symbol) => by.get(symbol)).filter((q): q is Quote => !!q));
   const spy = by.get("SPY");
 
@@ -145,28 +142,7 @@ export function Overview({ board }: { board: Board }) {
         </div>
       </Panel>
 
-      <p className="text-sm text-muted">1m is about one month. 1y is about one year. Both are percent changes in the price.</p>
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-        {indices.map((quote) => (
-          <article key={quote.symbol} className="rounded-xl border border-line bg-surface p-4">
-            <div className="flex items-baseline justify-between gap-3">
-              <h3 className="font-medium">{UNIVERSE_BY_SYMBOL.get(quote.symbol)?.label ?? quote.name}</h3>
-              <Tone value={quote.d1} />
-            </div>
-            <p className="mt-2 font-mono text-2xl tabular-nums tracking-tight">{fmtPrice(quote.price)}</p>
-            <p className="mt-2 flex gap-3 text-xs text-muted">
-              <span>1m <Tone value={quote.m1} /></span>
-              <span>1y <Tone value={quote.y1} /></span>
-            </p>
-            {UNIVERSE_BY_SYMBOL.get(quote.symbol)?.note ? (
-              <p className="mt-2 text-xs text-muted">{UNIVERSE_BY_SYMBOL.get(quote.symbol)?.note}</p>
-            ) : null}
-          </article>
-        ))}
-      </div>
-
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Panel title="Liquidity" kicker="How easy it is to borrow, and how scared lenders are">
+      <Panel title="Liquidity" kicker="How easy it is to borrow, and how scared lenders are">
           <dl className="grid gap-3 sm:grid-cols-2">
             <Stat label="10-year minus 2-year" value={board.t10y2y == null ? "—" : fmtBp(board.t10y2y)} hint="Longer Treasury loans minus shorter ones. Negative means the curve is upside down." />
             <Stat label="10-year minus 3-month" value={board.t10y3m == null ? "—" : fmtBp(board.t10y3m)} hint="Same idea, using the 3-month bill. Also a recession warning when negative." />
@@ -179,22 +155,6 @@ export function Overview({ board }: { board: Board }) {
           </dl>
           <p className="mt-4 text-sm text-muted">A basis point, written bp, is 0.01 percentage points. 25 bp is a quarter of one percent.</p>
         </Panel>
-        <Panel title="Commodities and the dollar" kicker="The latest finished trading session">
-          <p className="mb-3 text-sm text-muted">A front contract is the futures month closest to delivery, the usual stand-in for the spot price. The dollar line is the dollar index, a basket against other currencies.</p>
-          <div className="grid gap-2">
-            {commodities.map((quote) => (
-              <div key={quote.symbol} className="flex items-center justify-between gap-3 border-b border-line py-2 last:border-0">
-                <div>
-                  <p className="text-sm">{UNIVERSE_BY_SYMBOL.get(quote.symbol)?.label}</p>
-                  <p className="font-mono text-xs text-muted">{quote.symbol}</p>
-                </div>
-                <p className="font-mono tabular-nums">{fmtPrice(quote.price)}</p>
-                <Heat value={quote.d1} />
-              </div>
-            ))}
-          </div>
-        </Panel>
-      </div>
       <p className="text-sm text-muted">{board.crossCheck}</p>
     </div>
   );
@@ -219,9 +179,9 @@ function UsTape() {
     return () => window.removeEventListener("desk-refresh", onRefresh);
   }, [query]);
 
-  if (query.isPending) return <p className="text-sm text-muted">Reading US index prices and S&P 500 breadth.</p>;
+  if (query.isPending) return <p className="text-sm text-muted">Reading index prices and S&P 500 breadth.</p>;
   if (query.isError || !query.data) {
-    return <p className="text-sm text-muted">{query.error instanceof Error ? query.error.message : "US index history did not load."}</p>;
+    return <p className="text-sm text-muted">{query.error instanceof Error ? query.error.message : "Index history did not load."}</p>;
   }
   return <TapeBody tape={query.data} cardRange={cardRange} setCardRange={setCardRange} priceRange={priceRange} setPriceRange={setPriceRange} breadthRange={breadthRange} setBreadthRange={setBreadthRange} />;
 }
@@ -257,12 +217,12 @@ function TapeBody({
 
   return (
     <>
-      <Panel className="min-w-0" title="US indexes" kicker={tape.quoteTime ? `As of ${tape.quoteTime}` : tape.asOf ? `Through ${tape.asOf}` : "Latest close"}>
+      <Panel className="min-w-0" title="Major indexes" kicker={tape.quoteTime ? `As of ${tape.quoteTime}` : tape.asOf ? `Through ${tape.asOf}` : "Latest close"}>
         <p className="mb-3 max-w-3xl text-sm text-muted">
-          Price is the index level. The percent is how much that level changed over the window you pick. Day is the last session. Week is 5 sessions, month 21, quarter 63, half year 126, and a year is 252 sessions. YTD starts at the last close of last year. These six levels refresh about every minute while this page is open. They come from Yahoo, not a direct exchange feed.
+          Price is the index level. The percent is how much that level changed over the window you pick. Day is the last session. Week is 5 sessions, month 21, quarter 63, half year 126, and a year is 252 sessions. YTD starts at the last close of last year. These levels refresh about every minute while this page is open. They come from Yahoo, not a direct exchange feed.
         </p>
         <RangeToggle value={cardRange} onChange={setCardRange} />
-        <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {tape.indexes.map((row) => (
             <article key={row.symbol} className="rounded-lg border border-line px-3 py-3">
               <div className="flex items-baseline justify-between gap-3">
@@ -271,6 +231,7 @@ function TapeBody({
               </div>
               <p className="mt-1 font-mono text-2xl tabular-nums tracking-tight">{fmtPrice(row.price)}</p>
               <p className="mt-1 text-xs text-muted">{cardLabel}</p>
+              {row.note ? <p className="mt-1 text-xs text-muted">{row.note}</p> : null}
             </article>
           ))}
         </div>

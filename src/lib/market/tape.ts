@@ -31,6 +31,7 @@ export type TapeIndex = {
   label: string;
   price: number;
   changes: Record<RangeId, number | null>;
+  note?: string;
 };
 
 export type TapePoint = { d: string; v: number };
