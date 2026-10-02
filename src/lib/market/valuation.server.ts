@@ -12,9 +12,20 @@ const NAMES = [
   "NFLX", "T", "VZ",
 ];
 
+const SECTOR: Record<string, string> = {
+  AAPL: "Technology", MSFT: "Technology", NVDA: "Technology", GOOGL: "Technology", AMZN: "Technology", META: "Technology", AVGO: "Technology", ORCL: "Technology", CRM: "Technology", AMD: "Technology", CSCO: "Technology", ADBE: "Technology", NFLX: "Technology",
+  JPM: "Financial Services", BAC: "Financial Services", WFC: "Financial Services", GS: "Financial Services", MS: "Financial Services", V: "Financial Services", MA: "Financial Services",
+  UNH: "Healthcare", JNJ: "Healthcare", LLY: "Healthcare", PFE: "Healthcare", MRK: "Healthcare", ABBV: "Healthcare",
+  WMT: "Consumer", COST: "Consumer", HD: "Consumer", PG: "Consumer", KO: "Consumer", PEP: "Consumer", MCD: "Consumer", NKE: "Consumer", DIS: "Consumer",
+  CAT: "Industrials", HON: "Industrials", GE: "Industrials", UNP: "Industrials",
+  XOM: "Energy", CVX: "Energy", COP: "Energy",
+  T: "Communication", VZ: "Communication",
+};
+
 let cache: { at: number; inputs: ValuationInput[]; discount: number } | null = null;
 const jar = new Map<string, string>();
 let crumbCache: { value: string; at: number } | null = null;
+let crumbFlight: Promise<string> | null = null;
 
 export async function loadValuation(symbol = "", fresh = false): Promise<ValuationBook> {
   const extra = cleanSymbol(symbol);
@@ -28,12 +39,16 @@ export async function loadValuation(symbol = "", fresh = false): Promise<Valuati
 
 async function loadBase(): Promise<{ at: number; inputs: ValuationInput[]; discount: number }> {
   const discount = await discountRate();
-  const inputs: ValuationInput[] = [];
-  await mapPool(NAMES, 4, async (symbol) => {
-    const row = await loadOne(symbol);
-    if (row) inputs.push(row);
-  });
+  const quotes = await loadQuotes(NAMES);
+  const inputs = NAMES.map((symbol) => fromQuote(symbol, quotes.get(symbol))).filter((row): row is ValuationInput => row != null);
   if (inputs.length < 12) throw new Error("Valuation data did not load for enough companies.");
+  const deadline = Date.now() + 12_000;
+  await mapPool(inputs, 3, async (row) => {
+    if (Date.now() > deadline) return;
+    const extra = await loadFundamentals(row.symbol);
+    if (!extra) return;
+    Object.assign(row, extra);
+  });
   return { at: Date.now(), inputs, discount };
 }
 
@@ -64,39 +79,82 @@ async function discountRate(): Promise<number> {
 }
 
 async function loadOne(symbol: string): Promise<ValuationInput | null> {
+  const quotes = await loadQuotes([symbol]);
+  const row = fromQuote(symbol, quotes.get(symbol));
+  if (!row) return null;
+  const extra = await loadFundamentals(symbol);
+  return extra ? { ...row, ...extra, symbol, name: extra.name || row.name } : row;
+}
+
+type QuoteRow = Record<string, unknown>;
+
+async function loadQuotes(symbols: string[]): Promise<Map<string, QuoteRow>> {
+  const out = new Map<string, QuoteRow>();
+  for (let i = 0; i < symbols.length; i += 15) {
+    const batch = symbols.slice(i, i + 15);
+    const body = await yahooJson(`https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(batch.join(","))}&crumb=`);
+    const rows = (body?.quoteResponse?.result ?? []) as QuoteRow[];
+    for (const row of rows) {
+      const symbol = String(row.symbol ?? "");
+      if (symbol) out.set(symbol, row);
+    }
+  }
+  return out;
+}
+
+function fromQuote(symbol: string, row: QuoteRow | undefined): ValuationInput | null {
+  if (!row) return null;
+  const price = num(row.regularMarketPrice);
+  const marketCap = num(row.marketCap);
+  const eps = num(row.epsTrailingTwelveMonths);
+  const forward = num(row.epsForward);
+  const shares = price != null && price > 0 && marketCap != null ? marketCap / price : null;
+  return {
+    symbol,
+    name: String(row.longName || row.shortName || symbol),
+    sector: SECTOR[symbol] ?? "Unclassified",
+    price,
+    marketCap,
+    pe: num(row.trailingPE),
+    forwardPe: num(row.forwardPE),
+    pb: num(row.priceToBook),
+    evEbitda: null,
+    peg: null,
+    fcf: null,
+    operatingCashflow: null,
+    earnings: eps != null && shares != null ? eps * shares : null,
+    dividend: num(row.trailingAnnualDividendRate),
+    debtToEquity: null,
+    growth: eps != null && eps > 0 && forward != null && forward > 0 ? forward / eps - 1 : null,
+  };
+}
+
+async function loadFundamentals(symbol: string): Promise<Partial<ValuationInput> | null> {
   try {
-    const crumb = await yahooCrumb();
-    const body = await yahooText(`https://query2.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(symbol)}?modules=assetProfile,summaryDetail,defaultKeyStatistics,financialData,price&crumb=${encodeURIComponent(crumb)}`);
-    const json = JSON.parse(body) as { quoteSummary?: { result?: Array<Record<string, Record<string, unknown>>> } };
-    const result = json.quoteSummary?.result?.[0];
+    const body = await yahooJson(`https://query2.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(symbol)}?modules=assetProfile,defaultKeyStatistics,financialData&crumb=`);
+    const result = body?.quoteSummary?.result?.[0] as Record<string, Record<string, unknown>> | undefined;
     if (!result) return null;
     const stats = result.defaultKeyStatistics ?? {};
-    const detail = result.summaryDetail ?? {};
     const finance = result.financialData ?? {};
     const profile = result.assetProfile ?? {};
-    const priceBlock = result.price ?? {};
-    const price = num(priceBlock.regularMarketPrice) ?? num(finance.currentPrice);
-    const shares = num(stats.sharesOutstanding);
-    const eps = num(stats.trailingEps);
+    const patch: Partial<ValuationInput> = {};
+    const longName = String(profile.longName || "");
+    const sector = String(profile.sector || "");
+    if (longName) patch.name = longName;
+    if (sector) patch.sector = sector;
+    const ev = num(stats.enterpriseToEbitda);
+    const peg = num(stats.pegRatio);
+    const fcf = num(finance.freeCashflow);
+    const cash = num(finance.operatingCashflow);
+    if (ev != null) patch.evEbitda = ev;
+    if (peg != null) patch.peg = peg;
+    if (fcf != null) patch.fcf = fcf;
+    if (cash != null) patch.operatingCashflow = cash;
     const debt = num(finance.debtToEquity);
-    return {
-      symbol,
-      name: String(priceBlock.longName || priceBlock.shortName || symbol),
-      sector: String(profile.sector || "Unclassified"),
-      price,
-      marketCap: num(detail.marketCap) ?? num(priceBlock.marketCap),
-      pe: num(stats.trailingPE) ?? num(detail.trailingPE),
-      forwardPe: num(stats.forwardPE) ?? num(detail.forwardPE),
-      pb: num(stats.priceToBook),
-      evEbitda: num(stats.enterpriseToEbitda),
-      peg: num(stats.pegRatio),
-      fcf: num(finance.freeCashflow),
-      operatingCashflow: num(finance.operatingCashflow),
-      earnings: eps != null && shares != null ? eps * shares : null,
-      dividend: num(detail.trailingAnnualDividendRate) ?? num(stats.trailingAnnualDividendRate),
-      debtToEquity: debt == null ? null : debt > 10 ? debt / 100 : debt,
-      growth: num(finance.earningsGrowth) ?? num(finance.revenueGrowth),
-    };
+    const growth = num(finance.earningsGrowth) ?? num(finance.revenueGrowth);
+    if (debt != null) patch.debtToEquity = debt > 10 ? debt / 100 : debt;
+    if (growth != null) patch.growth = growth;
+    return patch;
   } catch {
     return null;
   }
@@ -118,12 +176,35 @@ function cleanSymbol(value: string): string {
 
 async function yahooCrumb(): Promise<string> {
   if (crumbCache && Date.now() - crumbCache.at < 10 * 60 * 1000) return crumbCache.value;
+  if (!crumbFlight) {
+    crumbFlight = fetchCrumb().finally(() => {
+      crumbFlight = null;
+    });
+  }
+  return crumbFlight;
+}
+
+async function fetchCrumb(): Promise<string> {
   await yahooText("https://fc.yahoo.com");
   const html = await yahooText("https://finance.yahoo.com/quote/AAPL");
   const crumb = html.match(/"crumb":"([^"]+)"/)?.[1];
   if (!crumb) throw new Error("Valuation session did not start.");
   crumbCache = { value: crumb, at: Date.now() };
   return crumb;
+}
+
+async function yahooJson(url: string): Promise<any> {
+  const withCrumb = async () => {
+    const crumb = await yahooCrumb();
+    const body = await yahooText(url.replace("crumb=", `crumb=${encodeURIComponent(crumb)}`));
+    return JSON.parse(body);
+  };
+  try {
+    return await withCrumb();
+  } catch {
+    crumbCache = null;
+    return withCrumb();
+  }
 }
 
 function yahooText(url: string): Promise<string> {
