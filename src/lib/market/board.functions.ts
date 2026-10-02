@@ -93,6 +93,17 @@ export const getOptions = createServerFn({ method: "GET" })
     return loadOptions(data.symbol, data.live);
   });
 
+export const getValuation = createServerFn({ method: "GET" })
+  .validator((input: unknown) => {
+    const symbol = typeof input === "object" && input && "symbol" in input ? String((input as { symbol?: string }).symbol ?? "") : "";
+    const fresh = typeof input === "object" && input !== null && "fresh" in input ? (input as { fresh?: boolean }).fresh === true : false;
+    return { symbol: symbol.slice(0, 12), fresh };
+  })
+  .handler(async ({ data }) => {
+    const { loadValuation } = await import("./valuation.server");
+    return loadValuation(data.symbol, data.fresh);
+  });
+
 export const getDark = createServerFn({ method: "GET" })
   .validator((input: unknown) => {
     const live = typeof input === "object" && input !== null && "live" in input

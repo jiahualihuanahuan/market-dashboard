@@ -1,237 +1,146 @@
-import { useMemo, useState, type Dispatch, type SetStateAction } from "react";
-import type { Board } from "@/lib/market/types";
-import { UNIVERSE } from "@/lib/market/universe";
-import { fmtPct, fmtPrice } from "@/lib/market/format";
+import { useEffect, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { getValuation } from "@/lib/market/board.functions";
+import type { ValuationRow } from "@/lib/market/valuation";
+import { fmtPct } from "@/lib/market/format";
 import { Panel } from "@/components/dashboard/bits";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
-type Segment = { name: string; metric: string; multiple: string };
-
-export function Valuation({ board }: { board: Board }) {
-  const names = useMemo(
-    () => UNIVERSE.filter((item) => item.group === "equity").map((item) => item.symbol),
-    [],
-  );
-  const [symbol, setSymbol] = useState("NVDA");
-  const quote = board.quotes.find((item) => item.symbol === symbol);
-  const price = quote?.price ?? 0;
-
-  const [fcf, setFcf] = useState("");
-  const [growth, setGrowth] = useState("8");
-  const [years, setYears] = useState("8");
-  const [wacc, setWacc] = useState("9");
-  const [terminal, setTerminal] = useState("2.5");
-  const [netDebt, setNetDebt] = useState("0");
-  const [pe, setPe] = useState("");
-  const [medianPe, setMedianPe] = useState("");
-  const [pb, setPb] = useState("");
-  const [book, setBook] = useState("");
-  const [segments, setSegments] = useState<Segment[]>([
-    { name: "", metric: "", multiple: "" },
-    { name: "", metric: "", multiple: "" },
-  ]);
-  const [sotpDebt, setSotpDebt] = useState("");
-  const [shares, setShares] = useState("");
-
-  const dcf = runDcf({
-    fcf: num(fcf),
-    growth: num(growth),
-    years: num(years),
-    wacc: num(wacc),
-    terminal: num(terminal),
-    netDebt: num(netDebt),
+export function ValuationTab() {
+  const [symbol, setSymbol] = useState("");
+  const [draft, setDraft] = useState("");
+  const [picked, setPicked] = useState<string | null>(null);
+  const freshRef = useRef(false);
+  const query = useQuery({
+    queryKey: ["valuation", symbol],
+    queryFn: () => {
+      const fresh = freshRef.current;
+      freshRef.current = false;
+      return getValuation({ data: { symbol, fresh } });
+    },
+    staleTime: 6 * 60 * 60 * 1000,
   });
-  const yardstick = price > 0 ? price * 0.04 : null;
-  const relative = pe && medianPe ? num(pe) - num(medianPe) : null;
-  const pbValue = num(pb) > 0 && num(book) > 0 ? num(book) * num(pb) : null;
-  const sotp = runSotp(segments, num(sotpDebt), num(shares));
+  useEffect(() => {
+    const onRefresh = () => {
+      freshRef.current = true;
+      void query.refetch();
+    };
+    window.addEventListener("desk-refresh", onRefresh);
+    return () => window.removeEventListener("desk-refresh", onRefresh);
+  }, [query]);
 
+  if (query.isPending) return <p className="text-sm text-muted">Reading prices, earnings, cash, and debt for the large-company list.</p>;
+  if (query.isError || !query.data) {
+    return <p className="text-sm text-muted">{query.error instanceof Error ? query.error.message : "Valuation did not load."}</p>;
+  }
+  const book = query.data;
+  const active = book.rows.find((row) => row.symbol === picked) ?? book.rows[0];
   return (
-    <div className="grid gap-4">
-      <Panel title="Ticker" kicker="Price is the last completed close. Multiples are yours — filings are not scraped.">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-          <label className="block flex-1 text-sm text-muted">
-            Symbol
-            <select
-              className="mt-1 h-11 w-full rounded-md border border-line bg-bg px-3 text-fg"
-              value={symbol}
-              onChange={(event) => setSymbol(event.target.value)}
-            >
-              {names.map((item) => (
-                <option key={item} value={item}>
-                  {item}
-                </option>
-              ))}
-            </select>
-          </label>
-          <p className="font-mono text-2xl tabular-nums">{price ? fmtPrice(price) : "No close"}</p>
-        </div>
-      </Panel>
-
-      <div className="grid gap-4 xl:grid-cols-2">
-        <Panel title="Discounted cash flow" kicker="Per share. Terminal value is a Gordon growth cap.">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Field label="FCF / share" value={fcf} onChange={setFcf} />
-            <Field label="Growth % for the explicit years" value={growth} onChange={setGrowth} />
-            <Field label="Years" value={years} onChange={setYears} />
-            <Field label="Discount rate %" value={wacc} onChange={setWacc} />
-            <Field label="Terminal growth %" value={terminal} onChange={setTerminal} />
-            <Field label="Net debt / share" value={netDebt} onChange={setNetDebt} />
-          </div>
-          <p className="mt-3 text-sm text-muted">
-            Free cash flow is cash left after the spending needed to keep the business running. The discount rate is the yearly return you demand for waiting and for risk. Terminal growth is how fast you assume that cash grows forever after the years you typed in; it has to stay below the discount rate. Net debt is borrowings minus cash.
-            {yardstick ? ` A 4% free-cash-flow yield on this close is ${fmtPrice(yardstick)} per share. That is a yardstick, not a forecast.` : ""}
-          </p>
-          {dcf == null ? (
-            <p className="mt-3 text-sm text-muted">Enter free cash flow per share to see a value.</p>
-          ) : (
-            <Result
-              lines={[
-                ["Value / share", fmtPrice(dcf)],
-                ["Vs close", price ? fmtPct((dcf / price - 1) * 100) : "—"],
-              ]}
-            />
-          )}
-        </Panel>
-
-        <Panel title="Relative" kicker="Your multiple against the median you trust.">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Field label="Trailing P/E" value={pe} onChange={setPe} />
-            <Field label="Median P/E" value={medianPe} onChange={setMedianPe} />
-            <Field label="P/B" value={pb} onChange={setPb} />
-            <Field label="Book / share" value={book} onChange={setBook} />
-          </div>
-          <Result
-            lines={[
-              ["P/E vs median", relative == null ? "—" : `${relative > 0 ? "+" : ""}${relative.toFixed(1)} turns`],
-              ["Price at that P/B", pbValue ? fmtPrice(pbValue) : "—"],
-            ]}
-          />
-          <p className="mt-3 text-sm text-muted">
-            P/E is the share price divided by the last year of profit. P/B is the price divided by the accountants’ book value per share. “Turns” is how many multiples you are above or below the typical company you have in mind.
-          </p>
-        </Panel>
-      </div>
-
-      <Panel title="Sum of the parts" kicker="Value each business, then subtract what the company owes">
-        <p className="mb-3 text-sm text-muted">
-          Price each segment as if you sold it at a similar company’s multiple, subtract net debt, and divide by the diluted share count. Diluted shares include stock that options and convertibles could create. Figures are in millions except the per-share result.
+    <div className="grid min-w-0 gap-4">
+      <Panel title="What the price leaves out" kicker={`Hurdle rate ${(book.discount * 100).toFixed(1)}% · most undervalued at the top`}>
+        <p className="max-w-3xl text-sm text-muted">{book.note}</p>
+        <p className="mt-3 max-w-3xl text-sm text-muted">
+          Intrinsic value looks at the business itself: future cash, or the dividends, turned into today's dollars. Relative value looks sideways: is the price high or low next to other companies, using earnings, net worth, operating profit, and growth. Two checks sit on top. Earnings quality asks whether the profit showed up as cash. Balance-sheet health asks whether debt is large next to what the owners have left. Leadership, a moat (a lasting advantage rivals cannot copy), and the industry's weather are real, and they are not in the score.
         </p>
-        <div className="grid gap-3">
-          {segments.map((segment, index) => (
-            <div key={index} className="grid gap-2 sm:grid-cols-3">
-              <Input
-                aria-label="Segment"
-                placeholder="Segment"
-                value={segment.name}
-                onChange={(event) => updateSegment(setSegments, index, { name: event.target.value })}
-              />
-              <Input
-                aria-label="Metric"
-                placeholder="EBITDA or revenue"
-                inputMode="decimal"
-                value={segment.metric}
-                onChange={(event) => updateSegment(setSegments, index, { metric: event.target.value })}
-              />
-              <Input
-                aria-label="Multiple"
-                placeholder="Multiple"
-                inputMode="decimal"
-                value={segment.multiple}
-                onChange={(event) => updateSegment(setSegments, index, { multiple: event.target.value })}
-              />
-            </div>
-          ))}
-          <div className="grid gap-2 sm:grid-cols-2">
-            <Field label="Net debt, millions" value={sotpDebt} onChange={setSotpDebt} />
-            <Field label="Diluted shares, millions" value={shares} onChange={setShares} />
-          </div>
-          <Button
-            variant="line"
-            onClick={() =>
-              setSegments([
-                { name: "Core", metric: "1000", multiple: "10" },
-                { name: "Other", metric: "200", multiple: "8" },
-              ])
+        <p className="mt-3 max-w-3xl text-sm text-muted">
+          This is more useful for a steady company that already makes money. It is a poor guide for a money-losing company, a bank's cash flow, a boom-and-bust commodity producer, or any name whose growth guess is wrong. The hurdle rate is the 10-year Treasury yield plus a 4.5 point cushion for owning stocks instead of government bonds.
+        </p>
+        <form
+          className="mt-3 flex gap-2"
+          onSubmit={(event) => {
+            event.preventDefault();
+            const next = draft.trim().toUpperCase();
+            if (next) {
+              setSymbol(next);
+              setPicked(next);
             }
-          >
-            Load an example, not company data
-          </Button>
-        </div>
-        {sotp == null ? (
-          <p className="mt-3 text-sm text-muted">Add one segment, net debt, and the share count.</p>
-        ) : (
-          <Result
-            lines={[
-              ["Equity value", `${fmtPrice(sotp.equity)} m`],
-              ["Per share", fmtPrice(sotp.perShare)],
-              ["Vs close", price ? fmtPct((sotp.perShare / price - 1) * 100) : "—"],
-            ]}
+          }}
+        >
+          <input
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            placeholder="Add a ticker"
+            aria-label="Add a ticker to the valuation rank"
+            className="h-11 w-full max-w-xs rounded-md border border-line bg-bg px-3 text-sm"
           />
-        )}
+          <button type="submit" className="h-11 shrink-0 rounded-full border border-line px-4 text-sm">
+            Add
+          </button>
+        </form>
       </Panel>
+
+      <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
+        <Panel title="Most undervalued first" kicker={`${book.rows.length} companies`}>
+          <ul className="max-h-[40rem] overflow-y-auto overscroll-contain pr-1">
+            {book.rows.map((row) => (
+              <li key={row.symbol}>
+                <button
+                  type="button"
+                  onClick={() => setPicked(row.symbol)}
+                  className={cn("grid w-full grid-cols-[4.5rem_minmax(0,1fr)_auto] items-center gap-3 py-1.5 text-left", row.symbol === active?.symbol ? "text-fg" : "text-muted")}
+                >
+                  <span className="font-mono text-xs whitespace-nowrap">{row.symbol}</span>
+                  <span className="h-2.5 overflow-hidden rounded-sm bg-elevated">
+                    <span className="block h-full rounded-sm" style={{ width: `${row.score}%`, background: barColor(row.label) }} />
+                  </span>
+                  <span className="font-mono text-xs tabular-nums">{row.score}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 text-xs text-muted">100 would mean cheaper than every peer on every measure we have. 0 would mean the most expensive. Most names land in between.</p>
+        </Panel>
+        {active ? <Detail row={active} /> : null}
+      </div>
     </div>
   );
 }
 
-function Field({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+function Detail({ row }: { row: ValuationRow }) {
+  const items: { label: string; value: string; plain: string }[] = [
+    { label: "Price to earnings", value: multiple(row.pe), plain: "Share price divided by the last year's profit per share. A lower number is cheaper. It breaks when the company lost money." },
+    { label: "Forward price to earnings", value: multiple(row.forwardPe), plain: "Same idea, using the profit analysts expect over the next year. The expectation can be wrong." },
+    { label: "Price to book", value: multiple(row.pb), plain: "Price compared with the net worth on the balance sheet. Useful for banks. Less useful when the value is a brand, not a factory." },
+    { label: "EV / EBITDA", value: multiple(row.evEbitda), plain: "The whole business, including debt, compared with operating profit before interest, tax, and non-cash charges. Lower is cheaper." },
+    { label: "PEG", value: multiple(row.peg), plain: "Price-to-earnings divided by the growth rate. It asks whether a high multiple is justified by faster growth. Around 1 is the old rule of thumb." },
+    { label: "Cash-flow yield", value: row.fcfYield == null ? "—" : `${row.fcfYield.toFixed(1)}%`, plain: "Free cash flow, the cash left after running and maintaining the business, divided by the price of the whole company." },
+    { label: "Cash-flow model", value: row.dcfUpside == null ? "—" : fmtPct(row.dcfUpside), plain: "Today's value of that cash if it grows slowly and you demand the hurdle rate. Positive means the model says the shares are cheap." },
+    { label: "Dividend model", value: row.ddmUpside == null ? "—" : fmtPct(row.ddmUpside), plain: "The same idea using the dividend instead of all the cash. Blank when the company barely pays one." },
+    { label: "Earnings quality", value: row.earningsQuality == null ? "—" : `${row.earningsQuality.toFixed(2)}×`, plain: "Cash from operations divided by reported profit. Near 1 means the profit showed up as cash. Well below 1 means the profit is ahead of the cash." },
+    { label: "Debt to equity", value: row.debtToEquity == null ? "—" : `${row.debtToEquity.toFixed(1)}×`, plain: "How much is owed for each dollar of net worth. Above 2 is a heavy load for most businesses." },
+    { label: "Growth on file", value: row.growth == null ? "—" : fmtPct(row.growth * 100), plain: "The growth rate the feed has for earnings, or for sales if earnings growth is missing. The models refuse to assume this stays above 5% forever." },
+  ];
   return (
-    <label className="block text-xs text-muted">
-      {label}
-      <Input className="mt-1" inputMode="decimal" value={value} onChange={(event) => onChange(event.target.value)} />
-    </label>
+    <Panel title={`${row.symbol} · ${row.label}`} kicker={row.sector}>
+      <p className="text-sm font-medium">{row.name}</p>
+      <p className="mt-1 font-mono text-sm tabular-nums">Score {row.score}</p>
+      <dl className="mt-3 grid gap-3">
+        {items.map((item) => (
+          <div key={item.label}>
+            <div className="flex items-baseline justify-between gap-3 text-sm">
+              <dt>{item.label}</dt>
+              <dd className="font-mono tabular-nums">{item.value}</dd>
+            </div>
+            <p className="text-xs text-muted">{item.plain}</p>
+          </div>
+        ))}
+      </dl>
+      <ul className="mt-3 grid gap-1">
+        {row.notes.map((note) => (
+          <li key={note} className="text-xs text-muted">{note}</li>
+        ))}
+      </ul>
+    </Panel>
   );
 }
 
-function Result({ lines }: { lines: [string, string][] }) {
-  return (
-    <dl className="mt-4 grid gap-2 border-t border-line pt-3 sm:grid-cols-3">
-      {lines.map(([label, value]) => (
-        <div key={label}>
-          <dt className="text-xs text-muted">{label}</dt>
-          <dd className="font-mono text-lg tabular-nums">{value}</dd>
-        </div>
-      ))}
-    </dl>
-  );
+function multiple(value: number | null): string {
+  if (value == null || !Number.isFinite(value)) return "—";
+  return value.toFixed(1);
 }
 
-function updateSegment(
-  setSegments: Dispatch<SetStateAction<Segment[]>>,
-  index: number,
-  patch: Partial<Segment>,
-) {
-  setSegments((rows) => rows.map((row, i) => (i === index ? { ...row, ...patch } : row)));
-}
-
-function num(value: string) {
-  const n = Number(value);
-  return Number.isFinite(n) ? n : 0;
-}
-
-function runDcf(input: { fcf: number; growth: number; years: number; wacc: number; terminal: number; netDebt: number }) {
-  if (input.fcf <= 0 || input.years < 1 || input.wacc / 100 <= input.terminal / 100) return null;
-  const g = input.growth / 100;
-  const r = input.wacc / 100;
-  const gt = input.terminal / 100;
-  const n = Math.min(40, Math.round(input.years));
-  let pv = 0;
-  let fcf = input.fcf;
-  for (let year = 1; year <= n; year += 1) {
-    fcf *= 1 + g;
-    pv += fcf / (1 + r) ** year;
-  }
-  const terminal = (fcf * (1 + gt)) / (r - gt);
-  pv += terminal / (1 + r) ** n;
-  return pv - input.netDebt;
-}
-
-function runSotp(segments: Segment[], debt: number, shares: number) {
-  const valued = segments
-    .map((segment) => num(segment.metric) * num(segment.multiple))
-    .filter((value) => value > 0);
-  if (!valued.length || shares <= 0) return null;
-  const equity = valued.reduce((sum, value) => sum + value, 0) - debt;
-  return { equity, perShare: equity / shares };
+function barColor(label: ValuationRow["label"]): string {
+  if (label === "Undervalued") return "var(--color-up)";
+  if (label === "Overvalued") return "var(--color-down)";
+  return "var(--color-muted)";
 }
