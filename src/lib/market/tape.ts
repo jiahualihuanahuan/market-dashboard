@@ -45,6 +45,7 @@ export type Tape = {
   breadth: BreadthPoint[];
   members: number;
   note: string;
+  quoteTime: string | null;
 };
 
 export function percentChange(closes: number[], dates: string[], range: RangeId): number | null {

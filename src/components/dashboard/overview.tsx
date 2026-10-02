@@ -1,12 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Bar, BarChart, CartesianGrid, Cell, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import type { Board, CnnFear, Quote } from "@/lib/market/types";
 import { UNIVERSE_BY_SYMBOL } from "@/lib/market/universe";
 import { fmtBp, fmtCompact, fmtPrice } from "@/lib/market/format";
 import { Empty, Gauge, Heat, Panel, Tone, tooltipStyle } from "@/components/dashboard/bits";
 import { getTape } from "@/lib/market/board.functions";
-import { RANGES, sliceSeries, windowBreadth, type RangeId, type Tape } from "@/lib/market/tape";
+import { RANGES, sliceSeries, type RangeId, type Tape } from "@/lib/market/tape";
 import { cn } from "@/lib/utils";
 
 const CHARTS = ["^GSPC", "^NDX", "^GSPTSE", "^GDAXI"];
@@ -201,21 +201,19 @@ export function Overview({ board }: { board: Board }) {
 }
 
 function UsTape() {
-  const liveRef = useRef(false);
   const [cardRange, setCardRange] = useState<RangeId>("day");
   const [priceRange, setPriceRange] = useState<RangeId>("y1");
   const [breadthRange, setBreadthRange] = useState<RangeId>("y1");
   const query = useQuery({
     queryKey: ["us-tape"],
-    queryFn: () => getTape({ data: { live: liveRef.current } }),
-    staleTime: 10 * 60 * 1000,
+    queryFn: () => getTape({ data: { live: true } }),
+    staleTime: 55_000,
+    refetchInterval: 60_000,
+    refetchIntervalInBackground: false,
   });
   useEffect(() => {
     const onRefresh = () => {
-      liveRef.current = true;
-      void query.refetch().finally(() => {
-        liveRef.current = false;
-      });
+      void query.refetch();
     };
     window.addEventListener("desk-refresh", onRefresh);
     return () => window.removeEventListener("desk-refresh", onRefresh);
@@ -249,18 +247,19 @@ function TapeBody({
     if (priceRange === "day" && tape.spxDay.length > 1) return tape.spxDay;
     return sliceSeries(tape.spx, priceRange === "day" ? "week" : priceRange);
   }, [tape, priceRange]);
-  const breadthLine = useMemo(
-    () => windowBreadth(tape.breadth, breadthRange === "day" ? "week" : breadthRange),
-    [tape, breadthRange],
-  );
+  const breadthLine = useMemo(() => {
+    const sliced = sliceSeries(tape.breadth, breadthRange);
+    const rows = breadthRange === "day" ? sliced.slice(-1) : sliced;
+    return rows.map((point) => ({ d: point.d, net: point.net }));
+  }, [tape, breadthRange]);
   const lastBreadth = tape.breadth[tape.breadth.length - 1];
   const cardLabel = RANGES.find((item) => item[0] === cardRange)?.[1] ?? "Day";
 
   return (
     <>
-      <Panel className="min-w-0" title="US indexes" kicker={tape.asOf ? `Through ${tape.asOf}` : "Latest close"}>
+      <Panel className="min-w-0" title="US indexes" kicker={tape.quoteTime ? `As of ${tape.quoteTime}` : tape.asOf ? `Through ${tape.asOf}` : "Latest close"}>
         <p className="mb-3 max-w-3xl text-sm text-muted">
-          Price is the index level. The percent is how much that level changed over the window you pick. Day is the last session. Week is 5 sessions, month 21, quarter 63, half year 126, and a year is 252 sessions. YTD starts at the last close of last year.
+          Price is the index level. The percent is how much that level changed over the window you pick. Day is the last session. Week is 5 sessions, month 21, quarter 63, half year 126, and a year is 252 sessions. YTD starts at the last close of last year. These six levels refresh about every minute while this page is open. They come from Yahoo, not a direct exchange feed.
         </p>
         <RangeToggle value={cardRange} onChange={setCardRange} />
         <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -302,33 +301,38 @@ function TapeBody({
 
       <Panel className="min-w-0" title="S&P 500 net breadth" kicker={lastBreadth ? `Latest day ${fmtNet(lastBreadth.net)}` : "Advances minus declines"}>
         <p className="mb-3 max-w-3xl text-sm text-muted">
-          Each day, count how many S&P 500 stocks rose and how many fell. Net breadth is the difference. The line adds those daily nets from the left edge of the window, so it starts at zero. A rising line means more stocks have been climbing than falling over that stretch. It is not the index price. A few giant stocks can lift the S&P while this line falls.
-          {breadthRange === "day" ? " One day is a single point, so Day draws the last week." : ""}
+          Each bar is one day, not a running total. It is how many S&P 500 stocks rose minus how many fell. Above zero means more stocks rose. Below zero means more stocks fell. It is not the index price. A few giant stocks can lift the S&P while this bar is negative.
+          {breadthRange === "day" ? " Day is that one session." : ""}
         </p>
         <RangeToggle value={breadthRange} onChange={setBreadthRange} />
-        {breadthLine.length > 1 ? (
+        {breadthLine.length > 0 ? (
           <div className="mt-3 h-72">
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={breadthLine} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+              <BarChart data={breadthLine} margin={{ top: 8, right: 8, left: 0, bottom: 0 }} barCategoryGap={1}>
                 <CartesianGrid stroke="var(--color-line)" vertical={false} />
                 <XAxis dataKey="d" tick={{ fill: "var(--color-subtle)", fontSize: 11 }} minTickGap={28} />
                 <YAxis tick={{ fill: "var(--color-subtle)", fontSize: 11 }} width={48} />
                 <ReferenceLine y={0} stroke="var(--color-muted)" />
                 <Tooltip
                   {...tooltipStyle}
-                  formatter={(value, name) => {
-                    if (name === "net") return [fmtNet(typeof value === "number" ? value : null), "That day"];
-                    return [fmtNet(typeof value === "number" ? value : null), "Since the left edge"];
+                  formatter={(value) => {
+                    const net = typeof value === "number" ? value : null;
+                    const words = net == null ? "" : net > 0 ? "more rose" : net < 0 ? "more fell" : "even";
+                    return [`${fmtNet(net)} ${words}`.trim(), "That day"];
                   }}
                 />
-                <Line dataKey="cum" name="cum" stroke="var(--color-fg)" dot={false} strokeWidth={2} isAnimationActive={false} />
-              </LineChart>
+                <Bar dataKey="net" name="net" isAnimationActive={false}>
+                  {breadthLine.map((row) => (
+                    <Cell key={row.d} fill={row.net > 0 ? "var(--color-up)" : row.net < 0 ? "var(--color-down)" : "var(--color-muted)"} />
+                  ))}
+                </Bar>
+              </BarChart>
             </ResponsiveContainer>
           </div>
         ) : (
           <p className="mt-3 text-sm text-muted">Breadth history did not come back.</p>
         )}
-        <p className="mt-3 max-w-3xl text-xs text-muted">{tape.note}</p>
+        <p className="mt-3 max-w-3xl text-xs text-muted">{tape.note} This chart is daily. It does not move every minute.</p>
       </Panel>
     </>
   );

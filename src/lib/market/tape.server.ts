@@ -14,12 +14,20 @@ const US: { symbol: string; label: string }[] = [
 
 let tapeCache: { at: number; data: Tape } | null = null;
 let breadthCache: { at: number; points: BreadthPoint[]; members: number; note: string } | null = null;
+const HISTORY_MS = 15 * 60 * 1000;
+const historyCache = new Map<string, { at: number; points: TapePoint[]; price: number | null; time: number | null }>();
 
 const dateFmt = new Intl.DateTimeFormat("en-CA", {
   timeZone: "America/New_York",
   year: "numeric",
   month: "2-digit",
   day: "2-digit",
+});
+const clockFmt = new Intl.DateTimeFormat("en-US", {
+  timeZone: "America/New_York",
+  hour: "numeric",
+  minute: "2-digit",
+  timeZoneName: "short",
 });
 const timeFmt = new Intl.DateTimeFormat("en-US", {
   timeZone: "America/New_York",
@@ -34,39 +42,41 @@ export async function loadTape(live = false): Promise<Tape> {
     live ? loadIntraday("^GSPC") : Promise.resolve([] as TapePoint[]),
     cachedBreadth(),
   ]);
-  const ready = indexes.filter((row): row is TapeIndex & { points: TapePoint[] } => row != null);
+  const ready = indexes.filter((row): row is TapeIndex & { points: TapePoint[]; quoteTime: string | null } => row != null);
   const spx = ready.find((row) => row.symbol === "^GSPC");
   if (!spx) throw new Error("The S&P 500 history did not load.");
   const data: Tape = {
     asOf: spx.points[spx.points.length - 1]?.d ?? "",
-    indexes: ready.map(({ points: _points, ...row }) => row),
+    indexes: ready.map(({ points: _points, quoteTime: _quoteTime, ...row }) => row),
     spx: spx.points,
     spxDay: day,
     breadth: breadth.points,
     members: breadth.members,
     note: breadth.note,
+    quoteTime: spx.quoteTime,
   };
   if (!live) tapeCache = { at: Date.now(), data };
   return data;
 }
 
-async function loadIndex(symbol: string, label: string, live: boolean): Promise<(TapeIndex & { points: TapePoint[] }) | null> {
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=10y&includeAdjustedClose=true`;
-  const json = await fetchJson(url);
-  const result = json?.chart?.result?.[0];
-  const timestamps = result?.timestamp as number[] | undefined;
-  const quote = result?.indicators?.quote?.[0];
-  if (!timestamps || !quote) return null;
-  let points: TapePoint[] = [];
-  for (let i = 0; i < timestamps.length; i += 1) {
-    const close = quote.close?.[i];
-    if (!timestamps[i] || typeof close !== "number" || !(close > 0)) continue;
-    points.push({ d: etDate(timestamps[i]), v: Math.round(close * 100) / 100 });
+async function loadIndex(symbol: string, label: string, live: boolean): Promise<(TapeIndex & { points: TapePoint[]; quoteTime: string | null }) | null> {
+  const hist = await dailyHistory(symbol);
+  if (!hist) return null;
+  let points = hist.points.map((point) => ({ ...point }));
+  let livePrice: number | null = null;
+  let quoteUnix: number | null = null;
+  if (live) {
+    const justFetched = Date.now() - hist.at < 45_000 && hist.price;
+    if (justFetched) {
+      livePrice = hist.price;
+      quoteUnix = hist.time;
+    } else {
+      const quote = await liveQuote(symbol);
+      livePrice = quote?.price ?? hist.price;
+      quoteUnix = quote?.time ?? hist.time;
+    }
   }
-  points = collapseDays(points);
   if (!live) points = dropOpenSession(points);
-  const meta = result?.meta ?? {};
-  const livePrice = live ? num(meta.regularMarketPrice) : null;
   if (livePrice && livePrice > 0) {
     const today = etDate(Math.floor(Date.now() / 1000));
     const last = points[points.length - 1];
@@ -78,7 +88,40 @@ async function loadIndex(symbol: string, label: string, live: boolean): Promise<
   const dates = points.map((point) => point.d);
   const changes = {} as Record<RangeId, number | null>;
   for (const range of RANGES) changes[range] = percentChange(closes, dates, range);
-  return { symbol, label, price: points[points.length - 1].v, changes, points: symbol === "^GSPC" ? points : [] };
+  const quoteTime = live && quoteUnix ? clockFmt.format(new Date(quoteUnix * 1000)) : null;
+  return { symbol, label, price: points[points.length - 1].v, changes, points: symbol === "^GSPC" ? points : [], quoteTime };
+}
+
+async function dailyHistory(symbol: string): Promise<{ at: number; points: TapePoint[]; price: number | null; time: number | null } | null> {
+  const hit = historyCache.get(symbol);
+  if (hit && Date.now() - hit.at < HISTORY_MS) return hit;
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=10y&includeAdjustedClose=true`;
+  const json = await fetchJson(url);
+  const result = json?.chart?.result?.[0];
+  const timestamps = result?.timestamp as number[] | undefined;
+  const quote = result?.indicators?.quote?.[0];
+  if (!timestamps || !quote) return hit ?? null;
+  const points: TapePoint[] = [];
+  for (let i = 0; i < timestamps.length; i += 1) {
+    const close = quote.close?.[i];
+    if (!timestamps[i] || typeof close !== "number" || !(close > 0)) continue;
+    points.push({ d: etDate(timestamps[i]), v: Math.round(close * 100) / 100 });
+  }
+  const collapsed = collapseDays(points);
+  if (collapsed.length < 2) return hit ?? null;
+  const meta = result?.meta ?? {};
+  const row = { at: Date.now(), points: collapsed, price: num(meta.regularMarketPrice), time: num(meta.regularMarketTime) };
+  historyCache.set(symbol, row);
+  return row;
+}
+
+async function liveQuote(symbol: string): Promise<{ price: number; time: number | null } | null> {
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=5d`;
+  const json = await fetchJson(url);
+  const meta = json?.chart?.result?.[0]?.meta;
+  const price = num(meta?.regularMarketPrice);
+  if (!price || !(price > 0)) return null;
+  return { price, time: num(meta?.regularMarketTime) };
 }
 
 async function loadIntraday(symbol: string): Promise<TapePoint[]> {
