@@ -4,6 +4,7 @@ export const TABS = [
   "yields",
   "commodities",
   "heatmap",
+  "technical",
   "valuation",
   "frontier",
   "flows",
