@@ -86,13 +86,12 @@ export function HeatmapTab() {
     [cells, zoom, width, height],
   );
   const active = bySymbol.get(picked ?? hover ?? "") ?? null;
-  const pricedCaps = cells.filter((cell) => cell.cap > 0).length;
   const sectors = useMemo(() => sectorRollup(cells, horizon), [cells, horizon]);
 
   return (
-    <div className="flex h-[calc(100dvh-14rem)] min-h-[22rem] flex-col md:h-[calc(100dvh-10.5rem)]">
+    <div className="flex h-[calc(100dvh-9.5rem)] min-h-[32rem] flex-col md:h-[calc(100dvh-7rem)]">
       <Panel
-        className="flex min-h-0 flex-1 flex-col overflow-hidden"
+        className="flex min-h-0 flex-1 flex-col overflow-hidden [&>div:first-child]:mb-2"
         title={query.data?.label ?? "Index members"}
         kicker="Grouped by sector. Bigger tile, bigger company."
         action={
@@ -113,7 +112,7 @@ export function HeatmapTab() {
           </div>
         }
       >
-        <div className="mb-4 flex gap-2 overflow-x-auto">
+        <div className="mb-2 flex gap-2 overflow-x-auto">
           {INDEXES.map((item) => (
             <button
               key={item.symbol}
@@ -128,14 +127,11 @@ export function HeatmapTab() {
             </button>
           ))}
         </div>
-        <p className="mb-3 text-sm text-muted">
-          Each block is a sector: companies in the same line of business, such as banks or energy. Inside a block, tile area is market value, the share price times the number of shares. A company worth twice as much gets twice the space. Green is up, red is down, and a darker tile is a bigger move. Hover or click a tile for the name. Click a sector to open only that group.
-          {query.data ? ` ${query.data.cells.length} of ${query.data.listed} names came back with a price.` : ""}
-          {cells.length && pricedCaps < cells.length
-            ? ` ${cells.length - pricedCaps} ${cells.length - pricedCaps === 1 ? "name has" : "names have"} no market value yet, so those tiles are drawn small instead of at a real size.`
-            : ""}
+        <p className="mb-2 text-xs text-muted">
+          Tile area is company size. Green is up, red is down, darker is a bigger move. Click a sector to open that group.
+          {query.data ? ` ${query.data.cells.length} of ${query.data.listed} names have a price.` : ""}
         </p>
-        <div className="mb-3 flex gap-2 overflow-x-auto">
+        <div className="mb-2 flex gap-2 overflow-x-auto">
           <button
             type="button"
             onClick={() => setZoom(null)}
@@ -165,7 +161,7 @@ export function HeatmapTab() {
         {query.isError ? (
           <p className="text-sm text-muted">{query.error instanceof Error ? query.error.message : "The index list did not load."}</p>
         ) : null}
-        <div ref={boxRef} className="relative min-h-0 flex-1">
+        <div ref={boxRef} className="relative min-h-[24rem] flex-1">
           {cells.length ? (
             <svg
               viewBox={`0 0 ${width} ${height}`}

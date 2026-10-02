@@ -5,6 +5,7 @@ import { getDark } from "@/lib/market/board.functions";
 import { avgSize, darkShare, latestOf, priorOf, type DarkBook, type DarkRow } from "@/lib/market/dark";
 import { fmtCompact, fmtPct } from "@/lib/market/format";
 import { Panel, tooltipStyle } from "@/components/dashboard/bits";
+import { cn } from "@/lib/utils";
 
 export function DarkTab() {
   const liveRef = useRef(false);
@@ -42,7 +43,7 @@ function DarkDesk({ book }: { book: DarkBook }) {
     [book.rows, needle],
   );
   const leaders = useMemo(
-    () => rows.slice().sort((a, b) => latestOf(b) - latestOf(a)).slice(0, 15).map((row) => ({ symbol: row.symbol, dollars: latestOf(row) })),
+    () => rows.slice().sort((a, b) => latestOf(b) - latestOf(a)).map((row) => ({ symbol: row.symbol, dollars: latestOf(row) })),
     [rows],
   );
   const movers = useMemo(() => {
@@ -105,21 +106,9 @@ function DarkDesk({ book }: { book: DarkBook }) {
       </Panel>
 
       <div className="grid min-w-0 gap-4 lg:grid-cols-2">
-        <Panel className="min-w-0" title="Largest dark-pool dollars" kicker="This week · click a bar">
-          <p className="mb-2 text-xs text-muted">Hidden venue dollars only. Not the public exchange, and not a broker filling from its own stock.</p>
-          <HBars>
-            <BarChart data={leaders} layout="vertical" margin={{ top: 4, right: 8, left: 8, bottom: 0 }}>
-              <CartesianGrid stroke="var(--color-line)" horizontal={false} />
-              <XAxis type="number" tickFormatter={(value) => fmtCompact(Number(value))} tick={{ fill: "var(--color-muted)", fontSize: 11 }} />
-              <YAxis type="category" dataKey="symbol" width={52} tick={{ fill: "var(--color-fg)", fontSize: 11 }} />
-              <Tooltip {...tooltipStyle} formatter={(value) => [money(typeof value === "number" ? value : null), "Dark-pool dollars"]} />
-              <Bar dataKey="dollars" isAnimationActive={false} onClick={(state) => pick(state, setSymbol)}>
-                {leaders.map((row) => (
-                  <Cell key={row.symbol} fill={row.symbol === selected?.symbol ? "var(--color-fg)" : "var(--color-muted)"} cursor="pointer" />
-                ))}
-              </Bar>
-            </BarChart>
-          </HBars>
+        <Panel className="min-w-0 lg:col-span-2" title="Largest dark-pool dollars" kicker={`${leaders.length.toLocaleString("en-US")} names this week · click a row`}>
+          <p className="mb-2 text-xs text-muted">Every large name in the weekly file, biggest first. Hidden venue dollars only, not the public exchange and not a broker filling from its own stock.</p>
+          <DollarBars rows={leaders} selected={selected?.symbol ?? ""} onPick={setSymbol} />
         </Panel>
 
         <Panel className="min-w-0" title="Change from the prior week" kicker="Biggest swings, either way">
@@ -248,6 +237,32 @@ function DarkDesk({ book }: { book: DarkBook }) {
       </div>
       <p className="text-xs text-muted">{book.note}</p>
     </div>
+  );
+}
+
+function DollarBars({ rows, selected, onPick }: { rows: { symbol: string; dollars: number }[]; selected: string; onPick: (symbol: string) => void }) {
+  const max = rows.reduce((best, row) => Math.max(best, row.dollars), 0);
+  return (
+    <ul className="max-h-[36rem] overflow-y-auto overscroll-contain pr-1">
+      {rows.map((row) => (
+        <li key={row.symbol}>
+          <button
+            type="button"
+            onClick={() => onPick(row.symbol)}
+            className={cn("grid h-8 w-full grid-cols-[auto_minmax(0,1fr)_4.75rem] items-center gap-3 text-left", row.symbol === selected ? "text-fg" : "text-muted")}
+          >
+            <span className="font-mono text-xs whitespace-nowrap">{row.symbol}</span>
+            <span className="h-2.5 overflow-hidden rounded-sm bg-elevated">
+              <span
+                className="block h-full rounded-sm"
+                style={{ width: max > 0 ? `${Math.max(1.5, (row.dollars / max) * 100)}%` : "0%", background: row.symbol === selected ? "var(--color-fg)" : "var(--color-muted)" }}
+              />
+            </span>
+            <span className="text-right font-mono text-xs tabular-nums">{money(row.dollars)}</span>
+          </button>
+        </li>
+      ))}
+    </ul>
   );
 }
 
