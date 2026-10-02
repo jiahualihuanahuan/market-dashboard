@@ -37,9 +37,20 @@ export type InsiderSide = {
   prints: InsiderPrint[];
 };
 
+export type InsiderPin = {
+  id: string;
+  name: string;
+  office: string;
+  note: string;
+  count: number;
+  prints: InsiderPrint[];
+  error: string | null;
+};
+
 export type InsiderBook = {
   executives: InsiderSide;
   politicians: InsiderSide;
+  pins: InsiderPin[];
   executiveWindow: string;
   politicianWindow: string;
   executiveCount: number;
@@ -52,14 +63,16 @@ let cache: { at: number; data: InsiderBook } | null = null;
 
 export async function loadInsiders(fresh = false): Promise<InsiderBook> {
   if (!fresh && cache && Date.now() - cache.at < 30 * 60 * 1000) return cache.data;
-  const [executives, politicians] = await Promise.all([
+  const [executives, politicians, pins] = await Promise.all([
     loadExecutives().catch((error: unknown) => ({ side: emptySide(), count: 0, window: "", error: message(error) })),
     loadPoliticians().catch((error: unknown) => ({ side: emptySide(), count: 0, window: "", error: message(error) })),
+    loadPins(),
   ]);
-  const problems = [executives.error, politicians.error].filter(Boolean);
+  const problems = [executives.error, politicians.error, ...pins.map((pin) => pin.error)].filter(Boolean);
   const data: InsiderBook = {
     executives: executives.side,
     politicians: politicians.side,
+    pins,
     executiveWindow: executives.window,
     politicianWindow: politicians.window,
     executiveCount: executives.count,
@@ -131,6 +144,86 @@ async function loadPoliticians(): Promise<{ side: InsiderSide; count: number; wi
   }
   const window = newest ? `${cutoff} to ${newest}` : cutoff;
   return { side: rank(prints), count: prints.length, window, error: null };
+}
+
+const PINNED = [
+  {
+    id: "house_nancy_pelosi",
+    name: "Nancy Pelosi",
+    office: "House",
+    note: "A House disclosure. Spouse means the trade was made by her husband. She still has to report it. Amounts are ranges, not an exact fill.",
+  },
+  {
+    id: "oge_donald_trump",
+    name: "Donald J. Trump",
+    office: "President",
+    note: "Periodic transaction reports filed with the Office of Government Ethics. Amounts are ranges. These are the latest stock trades, not the whole filing.",
+  },
+  {
+    id: "oge_jd_vance",
+    name: "JD Vance",
+    office: "Vice president",
+    note: "The public executive-branch trade file this desk reads has no stock trades under the vice president’s name.",
+  },
+] as const;
+
+async function loadPins(): Promise<InsiderPin[]> {
+  return Promise.all(PINNED.map((pin) => loadPin(pin)));
+}
+
+async function loadPin(pin: (typeof PINNED)[number]): Promise<InsiderPin> {
+  const empty: InsiderPin = { ...pin, count: 0, prints: [], error: null };
+  try {
+    const response = await fetch(`https://raw.githubusercontent.com/kadoa-org/congress-trading-monitor/main/public/data/filer/${pin.id}.json`, {
+      headers: { "user-agent": WEB_UA },
+      signal: AbortSignal.timeout(25000),
+    });
+    if (response.status === 404) return empty;
+    if (!response.ok) return { ...empty, error: `${pin.name} returned ${response.status}.` };
+    const json = (await response.json()) as { trades?: Record<string, unknown>[] };
+    const cutoff = iso(new Date(Date.now() - 90 * DAY));
+    const prints = (json.trades ?? [])
+      .map(readPinTrade)
+      .filter((print): print is InsiderPrint => print != null && print.traded >= cutoff)
+      .sort((a, b) => b.traded.localeCompare(a.traded) || b.value - a.value);
+    return { ...empty, count: prints.length, prints: prints.slice(0, 8) };
+  } catch (error) {
+    return { ...empty, error: message(error) };
+  }
+}
+
+function readPinTrade(row: Record<string, unknown>): InsiderPrint | null {
+  const side = pinSide(String(row.transaction_type ?? ""));
+  const symbol = ticker(row.ticker);
+  const low = num(row.amount_range_low);
+  if (!side || !symbol || low == null) return null;
+  return {
+    person: "",
+    role: ownerRole(row.owner),
+    symbol,
+    name: cleanName(String(row.asset_name || symbol)),
+    side,
+    value: low,
+    high: num(row.amount_range_high),
+    shares: null,
+    traded: dayText(row.transaction_date),
+    filed: dayText(row.filing_date),
+    url: String(row.doc_url || ""),
+  };
+}
+
+function pinSide(value: string): "buy" | "sell" | null {
+  if (/^purchase/i.test(value)) return "buy";
+  if (/^sale/i.test(value)) return "sell";
+  return null;
+}
+
+function ownerRole(value: unknown): string {
+  const code = String(value ?? "").toUpperCase();
+  if (code === "SP") return "Spouse";
+  if (code === "JT") return "Joint";
+  if (code === "DC") return "Dependent child";
+  return "";
 }
 
 function rank(prints: InsiderPrint[]): InsiderSide {

@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { getInsiders } from "@/lib/market/board.functions";
-import type { InsiderName, InsiderPrint, InsiderSide } from "@/lib/market/insiders.server";
+import type { InsiderName, InsiderPin, InsiderPrint, InsiderSide } from "@/lib/market/insiders.server";
 import { fmtCompact } from "@/lib/market/format";
 import { Panel } from "@/components/dashboard/bits";
 
@@ -34,13 +34,7 @@ export function InsidersTab() {
     <div className="grid min-w-0 gap-4">
       <p className="max-w-3xl text-sm text-muted">{book.note}</p>
       {book.error ? <p className="text-sm text-muted">{book.error}</p> : null}
-      <Group
-        title="Company executives"
-        kicker={`${book.executiveWindow || "Last 14 days"} · ${book.executiveCount.toLocaleString("en-US")} open-market trades in the latest 240 Form 4s`}
-        body="Only open-market buys and sells are counted. A grant, a gift, or an option exercise is left out. Dollars are the shares times the price written on the form. This is the latest 240 filings, not every Form 4 of the year."
-        side={book.executives}
-        range={false}
-      />
+      <Pins pins={book.pins ?? []} />
       <Group
         title="Politicians"
         kicker={`${book.politicianWindow || "Last 90 days"} · ${book.politicianCount.toLocaleString("en-US")} stock trades`}
@@ -48,6 +42,59 @@ export function InsidersTab() {
         side={book.politicians}
         range
       />
+      <Group
+        title="Company executives"
+        kicker={`${book.executiveWindow || "Last 14 days"} · ${book.executiveCount.toLocaleString("en-US")} open-market trades in the latest 240 Form 4s`}
+        body="Only open-market buys and sells are counted. A grant, a gift, or an option exercise is left out. Dollars are the shares times the price written on the form. This is the latest 240 filings, not every Form 4 of the year."
+        side={book.executives}
+        range={false}
+      />
+    </div>
+  );
+}
+
+function Pins({ pins }: { pins: InsiderPin[] }) {
+  if (!pins.length) return null;
+  return (
+    <div className="grid gap-4 lg:grid-cols-3">
+      {pins.map((pin) => (
+        <Panel key={pin.id} title={pin.name} kicker={pin.office}>
+          <p className="mb-3 text-sm text-muted">{pin.note}</p>
+          {pin.error ? <p className="text-sm text-muted">{pin.error}</p> : null}
+          {pin.prints.length ? (
+            <>
+              <p className="mb-2 text-xs text-muted">
+                {pin.count.toLocaleString("en-US")} stock trades in the last 90 days. Showing the latest {pin.prints.length}.
+              </p>
+              <ul className="max-h-64 overflow-y-auto overscroll-contain">
+                {pin.prints.map((print) => (
+                  <li key={`${print.url}-${print.symbol}-${print.traded}-${print.side}-${print.value}`} className="border-b border-line py-2 text-sm">
+                    <div className="flex items-baseline justify-between gap-3">
+                      <span>
+                        <span className="text-muted">{print.side === "buy" ? "Bought" : "Sold"} </span>
+                        <span className="font-mono">{print.symbol}</span>
+                      </span>
+                      <span className="shrink-0 font-mono tabular-nums">{money(print.value, print.high, true)}</span>
+                    </div>
+                    <p className="mt-0.5 text-xs text-muted">
+                      {print.name}
+                      {print.role ? ` · ${print.role}` : ""}
+                      {print.traded ? ` · traded ${print.traded}` : ""}
+                      {print.filed ? ` · filed ${print.filed}` : ""}
+                      {print.url ? (
+                        <>
+                          {" · "}
+                          <a className="underline-offset-2 hover:underline" href={print.url} target="_blank" rel="noreferrer">Filing</a>
+                        </>
+                      ) : null}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            </>
+          ) : null}
+        </Panel>
+      ))}
     </div>
   );
 }
