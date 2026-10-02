@@ -93,6 +93,13 @@ export const getOptions = createServerFn({ method: "GET" })
     return loadOptions(data.symbol, data.live);
   });
 
+export const getStability = createServerFn({ method: "GET" })
+  .validator(freshFlag)
+  .handler(async ({ data }) => {
+    const { loadStability } = await import("./stability.server");
+    return loadStability(data.fresh);
+  });
+
 export const getValuation = createServerFn({ method: "GET" })
   .validator((input: unknown) => {
     const symbol = typeof input === "object" && input && "symbol" in input ? String((input as { symbol?: string }).symbol ?? "") : "";
