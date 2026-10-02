@@ -58,7 +58,7 @@ function Holders() {
             <div>
               <h3 className="mb-2 text-sm font-medium">{query ? "Matching institutions" : "Largest institutions"}</h3>
               {data.managers.length === 0 ? <p className="text-sm text-muted">No institution matches.</p> : null}
-              <ul>
+              <ul className="max-h-64 overflow-y-auto overscroll-contain rounded-md border border-line px-2">
                 {data.managers.map((manager) => (
                   <li key={manager.cik} className="flex items-center gap-2 border-t border-line">
                     <button type="button" className="flex min-w-0 flex-1 items-baseline justify-between gap-3 py-2 text-left text-sm" onClick={() => setCik(manager.cik)}>
@@ -79,7 +79,7 @@ function Holders() {
             <div>
               <h3 className="mb-2 text-sm font-medium">{query ? "Matching stocks" : `Largest stocks · ${data.issuerCount.toLocaleString("en-US")} reported`}</h3>
               {data.aggregate.length === 0 ? <p className="text-sm text-muted">No stock matches.</p> : null}
-              <ul>
+              <ul className="max-h-64 overflow-y-auto overscroll-contain rounded-md border border-line px-2">
                 {data.aggregate.map((row) => (
                   <li key={row.cusip || row.issuer} className="flex items-baseline justify-between gap-3 border-t border-line py-2 text-sm">
                     <span>
@@ -122,7 +122,7 @@ function Holders() {
               <p className="mb-3 text-sm text-muted">
                 {book.data.count.toLocaleString("en-US")} stocks, ${fmtCompact(book.data.value)} reported. Showing the {book.data.holdings.length} largest. Filed {book.data.filed || "—"}.
               </p>
-              <ul>
+              <ul className="max-h-64 overflow-y-auto overscroll-contain rounded-md border border-line px-2">
                 {book.data.holdings.map((holding) => (
                   <li key={holding.issuer} className="flex items-baseline justify-between gap-3 border-t border-line py-2 text-sm">
                     <span>{holding.issuer}</span>
@@ -182,7 +182,7 @@ function Pinned() {
               {book && !book.error ? (
                 <>
                   <p className="mb-3 text-sm text-muted">${fmtCompact(book.value)} · {book.count.toLocaleString("en-US")} stocks. Showing the {book.holdings.length} largest.</p>
-                  <ul>
+                  <ul className="max-h-64 overflow-y-auto overscroll-contain rounded-md border border-line px-2">
                     {book.holdings.map((holding) => (
                       <li key={holding.issuer} className="flex items-baseline justify-between gap-3 border-t border-line py-2 text-sm">
                         <span>{holding.issuer}</span>
@@ -264,7 +264,7 @@ function Famous() {
               {book.period ? ` · period ${book.period}` : ""}
             </p>
             {book.error ? <p className="text-sm text-muted">{book.error}</p> : null}
-            <ul>
+            <ul className="max-h-64 overflow-y-auto overscroll-contain rounded-md border border-line px-2">
               {book.holdings.map((holding) => (
                 <li key={holding.issuer} className="flex items-baseline justify-between gap-3 border-t border-line py-2 text-sm">
                   <span>{holding.issuer}</span>
