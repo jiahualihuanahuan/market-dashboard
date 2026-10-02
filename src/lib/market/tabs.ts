@@ -1,10 +1,10 @@
 export const TABS = [
   "overview",
+  "panic",
   "macro",
   "yields",
   "commodities",
   "heatmap",
-  "technical",
   "valuation",
   "frontier",
   "flows",

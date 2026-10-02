@@ -126,6 +126,16 @@ export const getCommodityRatio = createServerFn({ method: "GET" })
     return loadCommodityRatio(data.chain, data.live);
   });
 
+export const getPanic = createServerFn({ method: "GET" })
+  .validator((input: unknown) => {
+    const live = typeof input === "object" && input !== null && "live" in input ? (input as { live?: boolean }).live === true : false;
+    return { live };
+  })
+  .handler(async ({ data }) => {
+    const { loadPanic } = await import("./panic.server");
+    return loadPanic(data.live);
+  });
+
 export const getDark = createServerFn({ method: "GET" })
   .validator((input: unknown) => {
     const live = typeof input === "object" && input !== null && "live" in input

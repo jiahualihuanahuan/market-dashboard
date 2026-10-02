@@ -1,82 +1,160 @@
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import type { Board } from "@/lib/market/types";
-import { panicCall } from "@/lib/market/rules";
-import { useDesk } from "@/lib/market/settings";
-import { Panel } from "@/components/dashboard/bits";
-import { Input } from "@/components/ui/input";
+import { getPanic } from "@/lib/market/board.functions";
+import { breadthPanic, drawdownPanic, fearPanic, panicWords, percentile, vixPanic } from "@/lib/market/panic";
+import { RANGES, sliceSeries, type RangeId } from "@/lib/market/tape";
+import { Panel, tooltipStyle } from "@/components/dashboard/bits";
 import { cn } from "@/lib/utils";
 
+const RANGES_USED = RANGES.filter(([id]) => id !== "day");
+
 export function Panic({ board }: { board: Board }) {
-  const partialVix = useDesk((s) => s.partialVix);
-  const fullVix = useDesk((s) => s.fullVix);
-  const partialPct = useDesk((s) => s.partialPct);
-  const breadthPanic = useDesk((s) => s.breadthPanic);
-  const setPanic = useDesk((s) => s.setPanic);
+  const [range, setRange] = useState<RangeId>("y1");
+  const liveRef = useRef(false);
+  const query = useQuery({
+    queryKey: ["panic-history"],
+    queryFn: () => {
+      const live = liveRef.current;
+      liveRef.current = false;
+      return getPanic({ data: { live } });
+    },
+    staleTime: 6 * 60 * 60 * 1000,
+  });
+  useEffect(() => {
+    const onRefresh = () => {
+      liveRef.current = true;
+      void query.refetch();
+    };
+    window.addEventListener("desk-refresh", onRefresh);
+    return () => window.removeEventListener("desk-refresh", onRefresh);
+  }, [query]);
+
   const vix = board.quotes.find((quote) => quote.symbol === "^VIX")?.price ?? null;
+  const spx = board.quotes.find((quote) => quote.symbol === "^GSPC");
   const book = board.breadth.source === "spx" ? "S&P 500" : "tracked book";
-  const decliners = board.breadth.universe ? (board.breadth.down / board.breadth.universe) * 100 : null;
-  const call = panicCall({ vix, declinersPct: decliners, partialVix, fullVix, partialPct, breadthPanic, book });
+  const downPct = board.breadth.universe ? (board.breadth.down / board.breadth.universe) * 100 : null;
+  const hy = board.hyOas;
+  const cnn = board.fearCnn?.score ?? null;
+  const hySample = (board.stress.find((row) => row.id === "hy")?.points ?? []).map((point) => point.v).filter((value) => value > 0);
+  const legs = [
+    {
+      id: "vix",
+      label: "Insurance price",
+      score: vix == null ? null : Math.round(vixPanic(vix)),
+      value: vix == null ? "—" : vix.toFixed(1),
+      plain: "VIX is the price of 30-day protection on the S&P 500. Around 14 is calm. Around 30 is a scramble. Around 40 is rare. A high price means traders are paying up to be protected.",
+    },
+    {
+      id: "breadth",
+      label: "How many stocks fell",
+      score: downPct == null ? null : Math.round(breadthPanic(downPct)),
+      value: downPct == null ? "—" : `${downPct.toFixed(0)}%`,
+      plain: `The share of ${book} members that fell. A falling index can be a few giant stocks. A panic is most stocks falling at once. Around 40% down is an ordinary day. Around 80% is a flush.`,
+    },
+    {
+      id: "hy",
+      label: "Junk-bond extra yield",
+      score: hy == null || hySample.length < 20 ? null : Math.round(percentile(hy, hySample)),
+      value: hy == null ? "—" : `${hy.toFixed(2)} pts`,
+      plain: "High-yield OAS is the extra interest lenders demand to hold risky company bonds instead of Treasuries. A wide gap means lenders are scared, not just stock traders. The score is how unusual today's gap is against the history on this page.",
+    },
+    {
+      id: "fear",
+      label: "CNN fear reading",
+      score: cnn == null ? null : Math.round(fearPanic(cnn)),
+      value: cnn == null ? "—" : `${Math.round(cnn)} ${board.fearCnn?.rating ?? ""}`.trim(),
+      plain: "CNN blends several of these clues into one 0–100 mood number. Low is fear. It is not a separate fact, so it should not be counted as a new vote. It is here so you can see the published mood next to the pieces.",
+    },
+    {
+      id: "drop",
+      label: "Drop from the yearly high",
+      score: spx && spx.high52 ? Math.round(drawdownPanic(spx.price, spx.high52)) : null,
+      value: spx && spx.high52 ? `${((spx.price / spx.high52 - 1) * 100).toFixed(1)}%` : "—",
+      plain: "How far the S&P 500 is below its high of the last year. A deep drop with calm credit is a repricing. A deep drop with expensive insurance and wide credit is more likely forced selling.",
+    },
+  ];
+  const used = legs.filter((leg) => leg.id !== "fear" && leg.score != null);
+  const score = used.length ? Math.round(used.reduce((sum, leg) => sum + (leg.score ?? 0), 0) / used.length) : null;
+  const words = score == null ? null : panicWords(score);
+  const hot = used.filter((leg) => (leg.score ?? 0) >= 60).length;
+  const line = useMemo(() => sliceSeries(query.data?.points ?? [], range), [query.data, range]);
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
-      <Panel title={call.title} kicker="Idle cash only">
-        <p className={cn("font-mono text-xs", call.level === "full" || call.level === "partial" ? "text-warn" : "text-muted")}>
-          {call.level === "standby" ? "No trigger" : call.level === "unconfirmed" ? "Not confirmed" : call.level}
+    <div className="grid min-w-0 gap-4">
+      <Panel title={words?.label ?? "Panic"} kicker={score == null ? "Waiting on the feeds" : `Score ${score} of 100`}>
+        <p className="max-w-3xl text-sm text-muted">
+          A market is inefficient, in this sense, when the price is set by people who have to sell rather than by a calm estimate of what the asset is worth. Panic is the usual cause. This page looks for that scramble in more than one place. One hot gauge is often just a story. Several at once is when a price is least trustworthy as a measure of value.
         </p>
-        <p className="mt-3 max-w-xl text-sm text-muted">{call.detail}</p>
-        <div className="mt-6 grid gap-3 sm:grid-cols-2">
-          <Meter label="VIX close" value={vix} max={80} mark={partialVix} />
-          <Meter label="Decliners" value={decliners} max={100} mark={breadthPanic} suffix="%" />
+        <p className="mt-3 max-w-3xl text-sm text-muted">{words?.plain}</p>
+        {score != null ? (
+          <p className="mt-3 max-w-3xl text-sm text-muted">
+            {score >= 75 && hot >= 3
+              ? "Insurance, credit, and the tape agree. This is the zone where the market is most likely inefficient."
+              : hot < 2
+                ? "The gauges do not agree. A single spike is not enough to call the market inefficient."
+                : "Some of the gauges agree. Treat the price as less reliable than usual, not as broken."}
+            {" "}This is not a buy or sell instruction. Panic can get worse. The reading also fails when the bad news is real and lasting, because then the lower price is the right one.
+          </p>
+        ) : null}
+        <div className="mt-4 h-3 overflow-hidden rounded-full bg-elevated">
+          <div className="h-3 rounded-full" style={{ width: `${score ?? 0}%`, background: score != null && score >= 55 ? "var(--color-down)" : "var(--color-muted)" }} />
         </div>
-        <ul className="mt-6 grid gap-2 text-sm text-muted">
-          <li>Two years of living expenses stay in Treasuries, which are US government bonds. This screen never touches that pile. Idle cash is only the money you could invest and have not.</li>
-          <li>VIX is the price of 30-day insurance on the S&P 500. A high number means traders are paying up to be protected. Decliners are the share of index members that closed down.</li>
-          <li>Idle cash deploys in two steps: {partialPct}% when VIX clears {partialVix}, the rest when it clears {fullVix}.</li>
-          <li>Both steps also need at least {breadthPanic}% of the {book} down on the day. A volatility spike without a broad flush is not the trade.</li>
-          <li>Cash has an opportunity cost. The point of the rule is to spend it when prices already discount a scare, not to admire a high VIX.</li>
+      </Panel>
+
+      <Panel title="The pieces" kicker="Higher means more panic. CNN is shown, not averaged in.">
+        <ul className="grid gap-4">
+          {legs.map((leg) => (
+            <li key={leg.id}>
+              <div className="mb-1 flex items-baseline justify-between gap-3 text-sm">
+                <span>{leg.label}</span>
+                <span className="font-mono tabular-nums">{leg.value}{leg.score == null ? "" : ` · ${leg.score}`}</span>
+              </div>
+              <div className="h-2 overflow-hidden rounded-full bg-elevated">
+                <div className="h-2 rounded-full bg-fg/80" style={{ width: `${leg.score ?? 0}%` }} />
+              </div>
+              <p className="mt-1 text-xs text-muted">{leg.plain}</p>
+            </li>
+          ))}
         </ul>
       </Panel>
-      <Panel title="Thresholds" kicker="Saved on this device">
-        <div className="grid gap-3">
-          <Num label="Partial VIX" value={partialVix} onChange={(value) => setPanic({ partialVix: value })} />
-          <Num label="Full VIX" value={fullVix} onChange={(value) => setPanic({ fullVix: value })} />
-          <Num label="Partial deploy %" value={partialPct} onChange={(value) => setPanic({ partialPct: value })} />
-          <Num label="Decliners bar %" value={breadthPanic} onChange={(value) => setPanic({ breadthPanic: value })} />
+
+      <Panel className="min-w-0" title="Insurance and credit together" kicker="The long record. Breadth is not in this line.">
+        <p className="mb-3 max-w-3xl text-sm text-muted">
+          Each point is the average of two things: how expensive stock insurance was that day, and how unusual the junk-bond extra yield was versus the prior year. The public file for that yield only goes back about three years, so the longer buttons show the whole file. Today's score above also uses how many stocks fell and how far the index is from its high. Those two are not in this line.
+        </p>
+        <div className="mb-3 flex gap-2 overflow-x-auto">
+          {RANGES_USED.map(([id, name]) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setRange(id)}
+              className={cn("h-11 shrink-0 rounded-full border px-3 text-sm", range === id ? "border-fg bg-elevated text-fg" : "border-line text-muted")}
+            >
+              {name}
+            </button>
+          ))}
         </div>
+        {query.isPending ? <p className="text-sm text-muted">Reading insurance prices and junk-bond yields.</p> : null}
+        {query.isError ? <p className="text-sm text-muted">{query.error instanceof Error ? query.error.message : "Panic history did not load."}</p> : null}
+        {line.length > 1 ? (
+          <div className="h-72">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={line} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                <CartesianGrid stroke="var(--color-line)" vertical={false} />
+                <XAxis dataKey="d" tick={{ fill: "var(--color-subtle)", fontSize: 11 }} minTickGap={28} />
+                <YAxis domain={[0, 100]} tick={{ fill: "var(--color-subtle)", fontSize: 11 }} width={36} />
+                <ReferenceLine y={55} stroke="var(--color-warn)" strokeDasharray="4 4" />
+                <ReferenceLine y={75} stroke="var(--color-down)" strokeDasharray="4 4" />
+                <Tooltip {...tooltipStyle} formatter={(value, name) => [typeof value === "number" ? (name === "score" ? value.toFixed(0) : value.toFixed(2)) : "—", name === "score" ? "Panic" : name === "vix" ? "VIX" : "Junk extra yield"]} />
+                <Line dataKey="score" name="score" stroke="var(--color-fg)" dot={false} strokeWidth={2} isAnimationActive={false} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        ) : null}
+        <p className="mt-2 text-xs text-muted">The upper dashed line is 75, the panic zone. The lower one is 55, stressed. The line is not a forecast.</p>
       </Panel>
     </div>
-  );
-}
-
-function Meter({ label, value, max, mark, suffix = "" }: { label: string; value: number | null; max: number; mark: number; suffix?: string }) {
-  const width = value == null ? 0 : Math.max(0, Math.min(100, (value / max) * 100));
-  const markLeft = Math.max(0, Math.min(100, (mark / max) * 100));
-  return (
-    <div>
-      <div className="mb-1 flex justify-between text-xs text-muted">
-        <span>{label}</span>
-        <span className="font-mono text-fg">{value == null ? "—" : `${value.toFixed(1)}${suffix}`}</span>
-      </div>
-      <div className="relative h-3 rounded-full bg-elevated">
-        <div className="h-3 rounded-full bg-fg/80" style={{ width: `${width}%` }} />
-        <div className="absolute top-0 h-3 w-px bg-warn" style={{ left: `${markLeft}%` }} />
-      </div>
-    </div>
-  );
-}
-
-function Num({ label, value, onChange }: { label: string; value: number; onChange: (value: number) => void }) {
-  return (
-    <label className="text-xs text-muted">
-      {label}
-      <Input
-        className="mt-1"
-        inputMode="decimal"
-        value={String(value)}
-        onChange={(event) => {
-          const next = Number(event.target.value);
-          if (Number.isFinite(next)) onChange(next);
-        }}
-      />
-    </label>
   );
 }
