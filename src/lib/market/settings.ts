@@ -9,9 +9,12 @@ export type Zone = {
   note: string;
 };
 
+export type PinnedInstitution = { cik: string; name: string };
+
 type DeskState = {
   zones: Zone[];
   watch: string[];
+  pins: PinnedInstitution[];
   partialVix: number;
   fullVix: number;
   partialPct: number;
@@ -19,6 +22,8 @@ type DeskState = {
   upsertZone: (zone: Zone) => void;
   removeZone: (symbol: string) => void;
   toggleWatch: (symbol: string) => void;
+  pinInstitution: (pin: PinnedInstitution) => void;
+  unpinInstitution: (cik: string) => void;
   setPanic: (patch: Partial<Pick<DeskState, "partialVix" | "fullVix" | "partialPct" | "breadthPanic">>) => void;
 };
 
@@ -34,6 +39,7 @@ export const useDesk = create<DeskState>()(
     (set) => ({
       zones: DEFAULT_ZONES,
       watch: ["COST", "GOOGL", "NVDA", "SPY", "QQQ", "IWM"],
+      pins: [],
       partialVix: 45,
       fullVix: 50,
       partialPct: 30,
@@ -55,6 +61,21 @@ export const useDesk = create<DeskState>()(
           watch: state.watch.includes(symbol)
             ? state.watch.filter((item) => item !== symbol)
             : [...state.watch, symbol],
+        })),
+      pinInstitution: (pin) =>
+        set((state) => {
+          const cik = pin.cik.replace(/\D/g, "").padStart(10, "0");
+          if (!cik || cik === "0000000000") return state;
+          const next = { cik, name: pin.name.trim() || `CIK ${cik}` };
+          const current = state.pins ?? [];
+          const pins = current.some((item) => item.cik === cik)
+            ? current.map((item) => (item.cik === cik ? next : item))
+            : [...current, next].slice(-12);
+          return { pins };
+        }),
+      unpinInstitution: (cik) =>
+        set((state) => ({
+          pins: (state.pins ?? []).filter((item) => item.cik !== cik && item.cik !== cik.padStart(10, "0")),
         })),
       setPanic: (patch) => set(patch),
     }),

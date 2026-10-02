@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient, useQueries } from "@tanstack/react-query";
 import { getHolderBook, getHolders, getSmartMoney } from "@/lib/market/board.functions";
 import { fmtCompact } from "@/lib/market/format";
+import { useDesk } from "@/lib/market/settings";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Empty, Panel } from "@/components/dashboard/bits";
@@ -10,6 +11,7 @@ export function Smart() {
   return (
     <div className="grid gap-4">
       <Holders />
+      <Pinned />
       <Famous />
     </div>
   );
@@ -19,6 +21,9 @@ function Holders() {
   const [text, setText] = useState("");
   const [query, setQuery] = useState("");
   const [cik, setCik] = useState<string | null>(null);
+  const pins = useDesk((state) => state.pins ?? []);
+  const pinInstitution = useDesk((state) => state.pinInstitution);
+  const unpinInstitution = useDesk((state) => state.unpinInstitution);
   useEffect(() => {
     const timer = setTimeout(() => setQuery(text.trim()), 250);
     return () => clearTimeout(timer);
@@ -55,14 +60,18 @@ function Holders() {
               {data.managers.length === 0 ? <p className="text-sm text-muted">No institution matches.</p> : null}
               <ul>
                 {data.managers.map((manager) => (
-                  <li key={manager.cik} className="border-t border-line">
-                    <button type="button" className="flex w-full items-baseline justify-between gap-3 py-2 text-left text-sm" onClick={() => setCik(manager.cik)}>
-                      <span>
+                  <li key={manager.cik} className="flex items-center gap-2 border-t border-line">
+                    <button type="button" className="flex min-w-0 flex-1 items-baseline justify-between gap-3 py-2 text-left text-sm" onClick={() => setCik(manager.cik)}>
+                      <span className="min-w-0">
                         <span className="block">{manager.name}</span>
                         <span className="font-mono text-xs text-muted">CIK {manager.cik}</span>
                       </span>
                       <span className="font-mono tabular-nums text-muted">${fmtCompact(manager.value)} · {share(manager.value, data.managerTotal)}</span>
                     </button>
+                    <PinButton
+                      on={pins.some((pin) => pin.cik === manager.cik)}
+                      onClick={() => (pins.some((pin) => pin.cik === manager.cik) ? unpinInstitution(manager.cik) : pinInstitution({ cik: manager.cik, name: manager.name }))}
+                    />
                   </li>
                 ))}
               </ul>
@@ -89,8 +98,20 @@ function Holders() {
         <Panel
           title={book.data?.name || "Institution"}
           kicker={book.data ? `CIK ${book.data.cik}${book.data.period ? ` · period ${book.data.period}` : ""}` : "Latest 13F"}
-          action={book.data?.url ? (
-            <a className="text-sm text-muted underline-offset-2 hover:underline" href={book.data.url} target="_blank" rel="noreferrer">Filing</a>
+          action={book.data ? (
+            <span className="flex items-center gap-2">
+              <PinButton
+                on={pins.some((pin) => pin.cik === book.data?.cik)}
+                onClick={() => {
+                  if (!book.data) return;
+                  if (pins.some((pin) => pin.cik === book.data?.cik)) unpinInstitution(book.data.cik);
+                  else pinInstitution({ cik: book.data.cik, name: book.data.name });
+                }}
+              />
+              {book.data.url ? (
+                <a className="text-sm text-muted underline-offset-2 hover:underline" href={book.data.url} target="_blank" rel="noreferrer">Filing</a>
+              ) : null}
+            </span>
           ) : null}
         >
           {book.isPending ? <p className="text-sm text-muted">Reading that institution’s latest 13F.</p> : null}
@@ -122,6 +143,61 @@ function share(part: number, total: number): string {
   const value = (part / total) * 100;
   const digits = value >= 10 ? 1 : 2;
   return `${value.toFixed(digits)}%`;
+}
+
+function PinButton({ on, onClick }: { on: boolean; onClick: () => void }) {
+  return (
+    <Button variant={on ? "line" : "ghost"} className="h-11 shrink-0" onClick={onClick}>
+      {on ? "Unpin" : "Pin"}
+    </Button>
+  );
+}
+
+function Pinned() {
+  const pins = useDesk((state) => state.pins ?? []);
+  const unpinInstitution = useDesk((state) => state.unpinInstitution);
+  const books = useQueries({
+    queries: pins.map((pin) => ({
+      queryKey: ["holder-book", pin.cik],
+      queryFn: () => getHolderBook({ data: { cik: pin.cik } }),
+      staleTime: 6 * 60 * 60 * 1000,
+    })),
+  });
+  if (!pins.length) return null;
+  return (
+    <div className="grid gap-4">
+      <p className="text-sm text-muted">Pinned institutions stay on this page. The list is saved in this browser only, up to 12.</p>
+      <div className="grid gap-4 lg:grid-cols-2">
+        {pins.map((pin, index) => {
+          const book = books[index]?.data;
+          return (
+            <Panel
+              key={pin.cik}
+              title={book?.name || pin.name}
+              kicker={`CIK ${pin.cik}${book?.period ? ` · period ${book.period}` : ""}`}
+              action={<Button variant="ghost" className="h-11" onClick={() => unpinInstitution(pin.cik)}>Unpin</Button>}
+            >
+              {books[index]?.isPending ? <p className="text-sm text-muted">Reading the latest 13F.</p> : null}
+              {book?.error ? <p className="text-sm text-muted">{book.error}</p> : null}
+              {book && !book.error ? (
+                <>
+                  <p className="mb-3 text-sm text-muted">${fmtCompact(book.value)} · {book.count.toLocaleString("en-US")} stocks. Showing the {book.holdings.length} largest.</p>
+                  <ul>
+                    {book.holdings.map((holding) => (
+                      <li key={holding.issuer} className="flex items-baseline justify-between gap-3 border-t border-line py-2 text-sm">
+                        <span>{holding.issuer}</span>
+                        <span className="font-mono tabular-nums text-muted">${fmtCompact(holding.value)} · {share(holding.value, book.value)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              ) : null}
+            </Panel>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
 function Famous() {
