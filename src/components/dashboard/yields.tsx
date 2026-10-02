@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import type { Board, Curve } from "@/lib/market/types";
+import { CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import type { Board, Curve, StressSeries } from "@/lib/market/types";
 import type { FedMeeting } from "@/lib/market/fedwatch";
 import { getFedWatch } from "@/lib/market/board.functions";
 import { fmtBp } from "@/lib/market/format";
@@ -113,24 +113,7 @@ export function Yields({ board }: { board: Board }) {
           An inversion of the 10-year against the 2-year, or against the 3-month bill, has historically led recessions by roughly 12 to 18 months. It is a warning, not a date. The faint lines mark the March 2000 market top, the June 2007 top, and the August 2019 inverted trough. FF on the axis is the fed funds rate, the overnight rate banks charge each other.
         </p>
       </Panel>
-      <Panel title="The slope, junk bonds, and the real yield" kicker="Month-end, since 2018">
-        <p className="mb-3 text-sm text-muted">
-          The slope is the 10-year yield minus the 2-year. Junk-bond extra yield is what investors demand above government bonds to lend to shaky companies. The real yield is the 10-year after inflation.
-        </p>
-        <div className="h-56">
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={board.spreadPath}>
-              <CartesianGrid stroke="var(--color-line)" vertical={false} />
-              <XAxis dataKey="d" tick={{ fill: "var(--color-subtle)", fontSize: 11 }} minTickGap={40} />
-              <YAxis tick={{ fill: "var(--color-subtle)", fontSize: 11 }} width={40} />
-              <Tooltip {...tooltipStyle} />
-              <Line dataKey="curve" name="10y minus 2y" stroke="var(--color-fg)" dot={false} strokeWidth={2} />
-              <Line dataKey="hy" name="Junk extra yield" stroke="var(--color-down)" dot={false} />
-              <Line dataKey="real" name="10y after inflation" stroke="var(--color-up)" dot={false} />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-      </Panel>
+      <StressIndexes series={board.stress ?? []} />
     </div>
   );
 }
@@ -140,6 +123,63 @@ function Callout({ label, value, hot }: { label: string; value: string; hot: boo
     <div className="rounded-xl border border-line bg-surface p-4">
       <p className="text-xs text-muted">{label}</p>
       <p className={cn("mt-1 font-mono text-2xl tabular-nums", hot ? "text-down" : "text-fg")}>{value}</p>
+    </div>
+  );
+}
+
+const STRESS_COPY: Record<string, { plain: string; zero?: string }> = {
+  hy: {
+    plain: "OAS is the extra yield investors demand to lend to shaky companies, above government bonds, adjusted so a bond that can be repaid early does not distort the number. A higher line means lenders are more nervous. The level is in percent: 4 means 4 percentage points of extra yield.",
+  },
+  nfci: {
+    plain: "The Chicago Fed’s National Financial Conditions Index. Zero is average conditions since 1971. Above zero means funding is tighter than usual. Below zero means looser. It is weekly, not daily.",
+    zero: "Average",
+  },
+  ofr: {
+    plain: "The Office of Financial Research stress index. It blends 33 market gauges, including credit, stocks, funding, safe assets, and volatility. Zero is average stress. Above zero means more stress than usual. Below zero means calmer. The print lags about two business days.",
+    zero: "Average",
+  },
+};
+
+function StressIndexes({ series }: { series: StressSeries[] }) {
+  if (!series.length) {
+    return <p className="text-sm text-muted">The stress indexes did not load.</p>;
+  }
+  return (
+    <div className="grid gap-4">
+      <div className="grid gap-3 sm:grid-cols-3">
+        {series.map((row) => (
+          <Callout
+            key={row.id}
+            label={`${row.label} · ${row.asOf}`}
+            value={row.id === "hy" ? `${row.value.toFixed(2)}%` : row.value.toFixed(2)}
+            hot={row.id !== "hy" && row.value > 0}
+          />
+        ))}
+      </div>
+      {series.map((row) => (
+        <Panel key={row.id} title={row.label} kicker={row.asOf}>
+          <p className="mb-3 text-sm text-muted">{STRESS_COPY[row.id]?.plain}</p>
+          <div className="h-56">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={row.points} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                <CartesianGrid stroke="var(--color-line)" vertical={false} />
+                <XAxis dataKey="d" tick={{ fill: "var(--color-subtle)", fontSize: 11 }} minTickGap={40} />
+                <YAxis tick={{ fill: "var(--color-subtle)", fontSize: 11 }} width={48} unit={row.id === "hy" ? "%" : undefined} domain={["auto", "auto"]} />
+                <Tooltip
+                  {...tooltipStyle}
+                  formatter={(value) => {
+                    const number = typeof value === "number" ? value : Number(value);
+                    return [row.id === "hy" ? `${number.toFixed(2)}%` : number.toFixed(2), row.label];
+                  }}
+                />
+                {STRESS_COPY[row.id]?.zero ? <ReferenceLine y={0} stroke="var(--color-muted)" strokeDasharray="4 4" /> : null}
+                <Line dataKey="v" name={row.label} stroke="var(--color-fg)" dot={false} strokeWidth={2} isAnimationActive={false} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </Panel>
+      ))}
     </div>
   );
 }

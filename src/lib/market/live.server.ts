@@ -16,6 +16,7 @@ import type {
   SmartMoney,
   Spark,
   SpreadPath,
+  StressSeries,
   TenorPoint,
 } from "@/lib/market/types";
 
@@ -53,7 +54,7 @@ const MANAGERS = [
 ];
 
 export async function loadBoard(fresh: boolean, live = false): Promise<Board> {
-  if (!fresh && boardCache && boardCache.data.ratios && boardCache.data.breadth.indexes?.length && "fearCnn" in boardCache.data && boardCache.data.macro.every((row) => row.aligned) && Date.now() - boardCache.at < 8 * 60 * 1000) {
+  if (!fresh && boardCache && boardCache.data.ratios && boardCache.data.breadth.indexes?.length && "fearCnn" in boardCache.data && boardCache.data.stress?.length >= 2 && boardCache.data.macro.every((row) => row.aligned) && Date.now() - boardCache.at < 8 * 60 * 1000) {
     return boardCache.data;
   }
   const warnings: string[] = [];
@@ -157,6 +158,7 @@ export async function loadBoard(fresh: boolean, live = false): Promise<Board> {
     curves,
     months,
     spreadPath: fred?.spreadPath ?? [],
+    stress: fred?.stress ?? [],
     ratios: chainRatios(bySymbol),
     t10y2y: fred?.t10y2y ?? null,
     t10y3m: fred?.t10y3m ?? null,
@@ -459,6 +461,7 @@ type FredPack = {
   curves: Curve[];
   months: Curve[];
   spreadPath: SpreadPath[];
+  stress: StressSeries[];
   t10y2y: number | null;
   t10y3m: number | null;
   hyOas: number | null;
@@ -475,6 +478,7 @@ async function loadFred(): Promise<FredPack> {
     "T10Y2Y",
     "T10Y3M",
     "BAMLH0A0HYM2",
+    "NFCI",
     "TEDRATE",
     "DFII10",
     "CPIAUCSL",
@@ -489,15 +493,17 @@ async function loadFred(): Promise<FredPack> {
     "LRUNTTTTCAM156S",
     "CPALTT01CAM659N",
   ];
+  const ofrPromise = loadOfr();
   const series = new Map<string, Obs[]>();
   await mapPool(ids, 8, async (id) => {
     try {
-      const start = id.startsWith("DGS") || id === "DFF" || id === "TEDRATE" ? "1999-01-01" : "2016-01-01";
+      const start = id.startsWith("DGS") || id === "DFF" || id === "TEDRATE" || id === "NFCI" || id === "BAMLH0A0HYM2" ? "1999-01-01" : "2016-01-01";
       series.set(id, await fredSeries(id, start));
     } catch {
       series.set(id, []);
     }
   });
+  const ofr = await ofrPromise;
 
   const anchor = series.get("DGS10") ?? [];
   if (anchor.length < 5) throw new Error("Treasury yields did not load.");
@@ -562,8 +568,62 @@ async function loadFred(): Promise<FredPack> {
     ted: tedLast ? { value: tedLast.value, date: tedLast.date } : null,
     yieldVol,
     real10: realLast?.value ?? null,
+    stress: stressSeries(hySeries, series.get("NFCI") ?? [], ofr),
     macro: await withExpected(buildMacro(series, latest)),
   };
+}
+
+function stressSeries(hy: Obs[], nfci: Obs[], ofr: Obs[]): StressSeries[] {
+  const specs = [
+    { id: "hy", label: "US high-yield OAS", obs: hy },
+    { id: "nfci", label: "Chicago Fed NFCI", obs: nfci },
+    { id: "ofr", label: "OFR financial stress index", obs: ofr },
+  ];
+  const out: StressSeries[] = [];
+  for (const spec of specs) {
+    const last = spec.obs.at(-1);
+    if (!last) continue;
+    out.push({
+      id: spec.id,
+      label: spec.label,
+      asOf: last.date,
+      value: round(last.value, 2),
+      points: thinObs(spec.obs, 360),
+    });
+  }
+  return out;
+}
+
+function thinObs(obs: Obs[], max: number): { d: string; v: number }[] {
+  const points = obs.map((row) => ({ d: row.date, v: round(row.value, 3) }));
+  if (points.length <= max) return points;
+  const step = (points.length - 1) / (max - 1);
+  const out: { d: string; v: number }[] = [];
+  const seen = new Set<number>();
+  for (let i = 0; i < max; i += 1) {
+    const index = i === max - 1 ? points.length - 1 : Math.round(i * step);
+    if (seen.has(index)) continue;
+    seen.add(index);
+    out.push(points[index]);
+  }
+  return out;
+}
+
+async function loadOfr(): Promise<Obs[]> {
+  try {
+    const text = await fetchText("https://www.financialresearch.gov/financial-stress-index/data/fsi.csv", YAHOO_UA, 20000);
+    const lines = text.trim().split(/\r?\n/);
+    const out: Obs[] = [];
+    for (let i = 1; i < lines.length; i += 1) {
+      const [date, raw] = lines[i].split(",");
+      const value = Number(raw);
+      if (!date || !Number.isFinite(value)) continue;
+      out.push({ date, value });
+    }
+    return out;
+  } catch {
+    return [];
+  }
 }
 
 function curveOn(series: Map<string, Obs[]>, date: string): TenorPoint[] {

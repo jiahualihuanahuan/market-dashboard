@@ -63,6 +63,16 @@ export type SpreadPath = {
   real: number | null;
 };
 
+export type StressPoint = { d: string; v: number };
+
+export type StressSeries = {
+  id: string;
+  label: string;
+  asOf: string;
+  value: number;
+  points: StressPoint[];
+};
+
 export type RatioPoint = {
   d: string;
   spot: number;
@@ -128,6 +138,7 @@ export type Board = {
   curves: Curve[];
   months: Curve[];
   spreadPath: SpreadPath[];
+  stress: StressSeries[];
   ratios: ChainRatio[];
   t10y2y: number | null;
   t10y3m: number | null;
