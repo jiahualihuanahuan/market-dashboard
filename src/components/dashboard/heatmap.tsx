@@ -37,6 +37,7 @@ export function HeatmapTab() {
   const [picked, setPicked] = useState<string | null>(null);
   const [hover, setHover] = useState<string | null>(null);
   const [width, setWidth] = useState(960);
+  const [height, setHeight] = useState(480);
   const boxRef = useRef<HTMLDivElement>(null);
   const liveRef = useRef(false);
   const query = useQuery({
@@ -67,16 +68,19 @@ export function HeatmapTab() {
   useEffect(() => {
     const el = boxRef.current;
     if (!el) return;
-    const observer = new ResizeObserver(() => setWidth(Math.max(320, el.clientWidth)));
+    const observer = new ResizeObserver(() => {
+      setWidth(Math.max(320, el.clientWidth));
+      setHeight(Math.max(220, el.clientHeight));
+    });
     observer.observe(el);
     setWidth(Math.max(320, el.clientWidth));
+    setHeight(Math.max(220, el.clientHeight));
     return () => observer.disconnect();
   }, [query.data]);
 
   const scale = WINDOWS.find((item) => item.id === horizon)?.scale ?? 3;
   const cells = query.data?.cells ?? [];
   const bySymbol = useMemo(() => new Map(cells.map((cell) => [cell.symbol, cell])), [cells]);
-  const height = Math.max(520, Math.min(760, Math.round(width * 0.62)));
   const layout = useMemo(
     () => buildLayout(cells, zoom, width, height),
     [cells, zoom, width, height],
@@ -86,8 +90,9 @@ export function HeatmapTab() {
   const sectors = useMemo(() => sectorRollup(cells, horizon), [cells, horizon]);
 
   return (
-    <div className="grid gap-4">
+    <div className="flex h-[calc(100dvh-14rem)] min-h-[22rem] flex-col md:h-[calc(100dvh-10.5rem)]">
       <Panel
+        className="flex min-h-0 flex-1 flex-col overflow-hidden"
         title={query.data?.label ?? "Index members"}
         kicker="Grouped by sector. Bigger tile, bigger company."
         action={
@@ -160,11 +165,11 @@ export function HeatmapTab() {
         {query.isError ? (
           <p className="text-sm text-muted">{query.error instanceof Error ? query.error.message : "The index list did not load."}</p>
         ) : null}
-        <div ref={boxRef} className="relative">
+        <div ref={boxRef} className="relative min-h-0 flex-1">
           {cells.length ? (
             <svg
               viewBox={`0 0 ${width} ${height}`}
-              className="h-auto w-full touch-manipulation"
+              className="h-full w-full touch-manipulation"
               role="img"
               aria-label="Stock heatmap sized by market value"
               onMouseLeave={() => setHover(null)}
@@ -223,8 +228,12 @@ export function HeatmapTab() {
               })}
             </svg>
           ) : null}
+          {active ? (
+            <div className="pointer-events-none absolute inset-x-2 bottom-2">
+              <StockCard cell={active} horizon={horizon} />
+            </div>
+          ) : null}
         </div>
-        {active ? <StockCard cell={active} horizon={horizon} /> : null}
       </Panel>
     </div>
   );
@@ -233,7 +242,7 @@ export function HeatmapTab() {
 function StockCard({ cell, horizon }: { cell: HeatCell; horizon: WindowId }) {
   const value = cell[horizon];
   return (
-    <div className="mt-3 flex flex-wrap items-end justify-between gap-3 rounded-xl border border-line bg-surface px-4 py-3">
+    <div className="flex flex-wrap items-end justify-between gap-3 rounded-xl border border-line bg-surface/95 px-4 py-3 shadow-sm backdrop-blur-sm">
       <div>
         <p className="font-medium">{cell.name}</p>
         <p className="text-sm text-muted">
