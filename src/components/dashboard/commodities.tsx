@@ -20,6 +20,14 @@ import { useNavigate, useSearch } from "@tanstack/react-router";
 
 const SPOTS = ["GC=F", "SI=F", "CL=F", "BZ=F", "HG=F", "NG=F", "DX-Y.NYB"];
 
+const RATIO_ETF: Partial<Record<ChainId, string>> = {
+  gold: "GDX",
+  silver: "SIL",
+  copper: "COPX",
+  energy: "XLE",
+  uranium: "URNM",
+};
+
 export function Commodities({ board }: { board: Board }) {
   const search = useSearch({ from: "/" });
   const navigate = useNavigate({ from: "/" });
@@ -69,8 +77,9 @@ export function Commodities({ board }: { board: Board }) {
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {members.map((quote) => {
             const meta = UNIVERSE_BY_SYMBOL.get(quote.symbol);
-            const rich = quote.divergence != null && quote.divergence >= 1.5;
-            const cheap = quote.divergence != null && quote.divergence <= -1.5;
+            const ratioName = quote.symbol === RATIO_ETF[chain];
+            const rich = ratioName && quote.divergence != null && quote.divergence >= 1.5;
+            const cheap = ratioName && quote.divergence != null && quote.divergence <= -1.5;
             return (
               <button
                 key={quote.symbol}
@@ -83,13 +92,15 @@ export function Commodities({ board }: { board: Board }) {
                   <Tone value={quote.d1} />
                 </div>
                 <p className="mt-1 font-mono text-lg tabular-nums">{fmtPrice(quote.price)}</p>
-                <p className="mt-2 text-xs text-muted">
-                  {meta?.role === "spot" || quote.divergence == null
-                    ? "Benchmark"
-                    : `Ratio z ${quote.divergence.toFixed(2)} vs spot`}
-                  {rich ? " · rich vs spot" : ""}
-                  {cheap ? " · cheap vs spot" : ""}
-                </p>
+                {ratioName && quote.divergence != null ? (
+                  <p className="mt-2 text-xs text-muted">
+                    Miner fund / spot, {quote.divergence.toFixed(2)} versus the last 60 sessions
+                    {rich ? " · rich vs spot" : ""}
+                    {cheap ? " · cheap vs spot" : ""}
+                  </p>
+                ) : meta?.role === "spot" ? (
+                  <p className="mt-2 text-xs text-muted">Spot price</p>
+                ) : null}
               </button>
             );
           })}
@@ -117,9 +128,9 @@ export function Commodities({ board }: { board: Board }) {
               <p className="mt-2 text-sm text-muted">1w <Tone value={selected.w1} /></p>
               <p className="text-sm text-muted">1m <Tone value={selected.m1} /></p>
               <p className="text-sm text-muted">1y <Tone value={selected.y1} /></p>
-              {selected.divergence != null ? (
+              {selected.symbol === RATIO_ETF[chain] && selected.divergence != null ? (
                 <p className="mt-3 text-sm text-muted">
-                  60-session z of the price ratio versus its chain spot: {selected.divergence.toFixed(2)}. Past 1.5 either way is a divergence flag.
+                  Miner fund divided by spot, versus the last 60 sessions: {selected.divergence.toFixed(2)}. Past 1.5 either way is unusual. Not a signal to trade.
                 </p>
               ) : null}
             </div>
@@ -162,10 +173,10 @@ function RatioChart({ chain, ratio }: { chain: ChainId; ratio: ChainRatio | null
       <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
         <div>
           <p className="text-sm font-medium">
-            {ratio.spotLabel} and the {ratio.etfLabel} ratio
+            {ratio.etfLabel} / {ratio.spotLabel}
           </p>
           <p className="text-xs text-muted">
-            Left is the spot price. Right is how far {ratio.etf} divided by spot sits from its usual level. Zero is the last 60 sessions.
+            Only this ratio: the miner fund divided by the spot price. Zero is its average over the last 60 sessions. The dashed lines are 1.5 standard deviations.
           </p>
         </div>
         <p className={cn("font-mono text-sm tabular-nums", outside ? "text-warn" : "text-muted")}>
@@ -183,10 +194,7 @@ function RatioChart({ chain, ratio }: { chain: ChainId; ratio: ChainRatio | null
               minTickGap={28}
               tickFormatter={(value: string) => value.slice(5)}
             />
-            <YAxis yAxisId="spot" tick={{ fill: "var(--color-subtle)", fontSize: 11 }} width={52} domain={["auto", "auto"]} />
             <YAxis
-              yAxisId="gap"
-              orientation="right"
               tick={{ fill: "var(--color-subtle)", fontSize: 11 }}
               width={44}
               unit="%"
@@ -194,29 +202,25 @@ function RatioChart({ chain, ratio }: { chain: ChainId; ratio: ChainRatio | null
             />
             <Tooltip
               {...tooltipStyle}
-              formatter={(value, name) => {
+              formatter={(value) => {
                 const number = Number(value);
-                if (name === "gap") return [`${number > 0 ? "+" : ""}${number.toFixed(1)}%`, "Vs usual"];
-                return [number.toLocaleString("en-US", { maximumFractionDigits: 2 }), ratio.spotLabel];
+                return [`${number > 0 ? "+" : ""}${number.toFixed(1)}%`, "Miner fund / spot"];
               }}
             />
-            <ReferenceLine yAxisId="gap" y={0} stroke="var(--color-muted)" strokeDasharray="3 3" />
+            <ReferenceLine y={0} stroke="var(--color-muted)" strokeDasharray="3 3" />
             <ReferenceLine
-              yAxisId="gap"
               y={band}
               stroke="var(--color-warn)"
               strokeDasharray="5 4"
               label={{ value: "Rich", fill: "var(--color-warn)", fontSize: 11, position: "insideTopRight" }}
             />
             <ReferenceLine
-              yAxisId="gap"
               y={-band}
               stroke="var(--color-warn)"
               strokeDasharray="5 4"
               label={{ value: "Cheap", fill: "var(--color-warn)", fontSize: 11, position: "insideBottomRight" }}
             />
-            <Line yAxisId="spot" dataKey="spot" name="spot" stroke="var(--color-fg)" dot={false} strokeWidth={2} />
-            <Line yAxisId="gap" dataKey="gap" name="gap" stroke="var(--color-accent)" dot={false} strokeWidth={2} connectNulls />
+            <Line dataKey="gap" name="gap" stroke="var(--color-accent)" dot={false} strokeWidth={2} connectNulls />
           </ComposedChart>
         </ResponsiveContainer>
       </div>
