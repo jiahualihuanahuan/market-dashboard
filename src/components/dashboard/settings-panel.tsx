@@ -32,7 +32,7 @@ export function SettingsPanel() {
           />
         </div>
       </Panel>
-      <Panel title="Watchlist" kicker="Names without a zone still show on the opportunity tab.">
+      <Panel title="Watchlist" kicker="Saved in this browser only.">
         <div className="flex flex-wrap gap-2">
           {choices.map((item) => {
             const on = watch.includes(item.symbol);
@@ -52,7 +52,7 @@ export function SettingsPanel() {
           })}
         </div>
       </Panel>
-      <Panel title="Panic thresholds" kicker="Same numbers as the panic tab.">
+      <Panel title="Panic thresholds" kicker="Saved in this browser only.">
         <div className="grid gap-3 sm:grid-cols-2">
           <Num label="Partial VIX" value={partialVix} onChange={(value) => setPanic({ partialVix: value })} />
           <Num label="Full VIX" value={fullVix} onChange={(value) => setPanic({ fullVix: value })} />

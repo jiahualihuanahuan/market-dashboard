@@ -8,14 +8,9 @@ export const TABS = [
   "flows",
   "options",
   "dark",
-  "valuation",
-  "radar",
-  "panic",
   "smart",
   "sectors",
   "lookthru",
-  "conviction",
-  "filings",
   "settings",
 ] as const;
 

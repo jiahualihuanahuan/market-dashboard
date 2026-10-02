@@ -4,19 +4,14 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeftRight,
   CalendarDays,
-  Crosshair,
   EyeOff,
   Landmark,
   Layers,
   LayoutDashboard,
   LayoutGrid,
   LineChart,
-  NotebookPen,
   PieChart,
-  ScrollText,
-  Scale,
   Settings,
-  ShieldAlert,
   Sigma,
   Spline,
   Waypoints,
@@ -35,16 +30,11 @@ import { FrontierTab } from "@/components/dashboard/frontier";
 import { FlowsTab } from "@/components/dashboard/flows";
 import { OptionsTab } from "@/components/dashboard/options";
 import { DarkTab } from "@/components/dashboard/dark";
-import { Valuation } from "@/components/dashboard/valuation";
-import { Radar } from "@/components/dashboard/radar";
-import { Panic } from "@/components/dashboard/panic";
 import { Smart } from "@/components/dashboard/smart";
 import { Sectors } from "@/components/dashboard/sectors";
 import { Macro } from "@/components/dashboard/macro";
 import { SettingsPanel } from "@/components/dashboard/settings-panel";
 import { LookthruApp } from "@/components/lookthru/app";
-import { ConvictionTab } from "@/components/dashboard/conviction";
-import { FilingsTab } from "@/components/dashboard/filings";
 
 const NAV: { id: TabId; label: string; icon: typeof LayoutDashboard }[] = [
   { id: "overview", label: "Overview", icon: LayoutDashboard },
@@ -56,18 +46,13 @@ const NAV: { id: TabId; label: string; icon: typeof LayoutDashboard }[] = [
   { id: "flows", label: "Flows", icon: ArrowLeftRight },
   { id: "options", label: "Options", icon: Sigma },
   { id: "dark", label: "Dark pool", icon: EyeOff },
-  { id: "valuation", label: "Valuation", icon: Scale },
-  { id: "radar", label: "Opportunity", icon: Crosshair },
-  { id: "panic", label: "Panic rules", icon: ShieldAlert },
   { id: "smart", label: "Smart money", icon: Landmark },
   { id: "sectors", label: "Sectors", icon: PieChart },
   { id: "lookthru", label: "Lookthru", icon: Waypoints },
-  { id: "conviction", label: "Conviction", icon: NotebookPen },
-  { id: "filings", label: "Filings", icon: ScrollText },
   { id: "settings", label: "Settings", icon: Settings },
 ];
 
-const SELF_CONTAINED = new Set<TabId>(["lookthru", "smart", "settings", "heatmap", "frontier", "flows", "options", "dark", "conviction", "filings"]);
+const SELF_CONTAINED = new Set<TabId>(["lookthru", "smart", "settings", "heatmap", "frontier", "flows", "options", "dark"]);
 
 export function Desk() {
   const search = useSearch({ from: "/" });
@@ -118,8 +103,6 @@ export function Desk() {
                   if (search.tab === "smart") {
                     const next = await getSmartMoney({ data: { fresh: true } });
                     client.setQueryData(["smart-money"], next);
-                  } else if (search.tab === "conviction") {
-                    window.dispatchEvent(new Event("desk-refresh"));
                   } else if (SELF_CONTAINED.has(search.tab)) {
                     window.dispatchEvent(new Event("desk-refresh"));
                   } else if (search.tab !== "settings") {
@@ -181,15 +164,10 @@ export function Desk() {
           {search.tab === "flows" ? <FlowsTab /> : null}
           {search.tab === "options" ? <OptionsTab /> : null}
           {search.tab === "dark" ? <DarkTab /> : null}
-          {data && search.tab === "valuation" ? <Valuation board={data} /> : null}
-          {data && search.tab === "radar" ? <Radar board={data} ready={ready} /> : null}
-          {data && search.tab === "panic" ? <Panic board={data} /> : null}
           {search.tab === "smart" ? <Smart /> : null}
           {data && search.tab === "sectors" ? <Sectors board={data} /> : null}
           {data && search.tab === "macro" ? <Macro board={data} /> : null}
           {search.tab === "lookthru" ? <LookthruApp /> : null}
-          {search.tab === "conviction" ? <ConvictionTab /> : null}
-          {search.tab === "filings" ? <FilingsTab /> : null}
           {search.tab === "settings" ? (
             ready ? <SettingsPanel /> : <p className="text-sm text-muted">Reading saved zones.</p>
           ) : null}
