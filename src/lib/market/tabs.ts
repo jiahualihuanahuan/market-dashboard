@@ -9,6 +9,7 @@ export const TABS = [
   "options",
   "dark",
   "smart",
+  "insiders",
   "sectors",
   "lookthru",
   "settings",

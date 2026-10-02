@@ -29,7 +29,12 @@ type Obs = { date: string; value: number };
 
 type Cache<T> = { at: number; data: T };
 let boardCache: Cache<Board> | null = null;
+let boardFlight: Promise<Board> | null = null;
+let fredCache: Cache<FredPack> | null = null;
+let cnnCache: Cache<CnnFear> | null = null;
 let smartCache: Cache<SmartMoney> | null = null;
+const quoteCache = new Map<string, { at: number; marketTime: number; data: RawQuote }>();
+const PRICE_MS = 50_000;
 
 const TENORS: { id: string; label: string; years: number }[] = [
   { id: "DFF", label: "FF", years: 0 },
@@ -51,13 +56,30 @@ const MANAGERS = [
   { name: "Duquesne Family Office", who: "Druckenmiller", cik: "0001536411", token: "DUQUESNE" },
 ];
 
-export async function loadBoard(fresh: boolean, live = false): Promise<Board> {
-  if (!fresh && boardCache && boardCache.data.ratios && boardCache.data.breadth.indexes?.length && "fearCnn" in boardCache.data && boardCache.data.stress?.length >= 2 && (boardCache.data.macroCharts ?? []).some((row) => row.id === "ca-cpi") && boardCache.data.macro.every((row) => row.aligned) && Date.now() - boardCache.at < 8 * 60 * 1000) {
-    return boardCache.data;
+export function loadBoard(fresh: boolean, _live = true): Promise<Board> {
+  if (!fresh && boardCache?.data.live && priceCacheFresh(boardCache.at) && boardReady(boardCache.data)) {
+    return Promise.resolve(boardCache.data);
   }
+  if (boardFlight) return boardFlight;
+  const flight = rebuildBoard(fresh).finally(() => {
+    if (boardFlight === flight) boardFlight = null;
+  });
+  boardFlight = flight;
+  return flight;
+}
+
+function priceCacheFresh(at: number): boolean {
+  return Date.now() - at < PRICE_MS;
+}
+
+function boardReady(data: Board): boolean {
+  return Boolean(data.ratios && data.breadth.indexes?.length && data.stress?.length >= 2 && (data.macroCharts ?? []).some((row) => row.id === "ca-cpi") && data.macro.every((row) => row.aligned));
+}
+
+async function rebuildBoard(fresh: boolean): Promise<Board> {
   const warnings: string[] = [];
   const [quoteRows, fred, fearCrypto, indexes, fearCnn] = await Promise.all([
-    mapPool(UNIVERSE, 12, (item) => loadQuote(item.symbol, live).catch(() => null)),
+    mapPool(UNIVERSE, 12, (item) => loadQuote(item.symbol, fresh).catch(() => null)),
     loadFred().catch((error: unknown) => {
       warnings.push(error instanceof Error ? error.message : "Yield feed failed");
       return null;
@@ -142,15 +164,13 @@ export async function loadBoard(fresh: boolean, live = false): Promise<Board> {
       : `S&P 500 ${fmtSigned(spx.d1)} vs SPY ${fmtSigned(spy.d1)}. Treat the index print as unverified.`;
   }
 
-  const asOf = live
-    ? etDate(Math.floor(Date.now() / 1000))
-    : spx?.spark.at(-1)?.d ?? raw[0]?.spark.at(-1)?.d ?? new Date().toISOString().slice(0, 10);
+  const asOf = etDate(Math.floor(Date.now() / 1000));
   const curves = fred?.curves ?? [];
   const months = fred?.months ?? [];
   const board: Board = {
     asOf,
     fetchedAt: new Date().toISOString(),
-    live,
+    live: true,
     quotes,
     breadth,
     curves,
@@ -210,15 +230,17 @@ type RawQuote = {
   bars: Bar[];
 };
 
-async function loadQuote(symbol: string, live = false): Promise<RawQuote | null> {
+async function loadQuote(symbol: string, fresh = false): Promise<RawQuote | null> {
+  const saved = quoteCache.get(symbol);
+  if (!fresh && saved && priceCacheFresh(saved.at)) return saved.data;
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=1y&includeAdjustedClose=true`;
   const json = await fetchJson(url, YAHOO_UA, 14000);
   const result = json?.chart?.result?.[0];
-  if (!result) return null;
+  if (!result) return saved?.data ?? null;
   const timestamps = result.timestamp as number[] | undefined;
   const quote = result.indicators?.quote?.[0];
   const adj = result.indicators?.adjclose?.[0]?.adjclose as Array<number | null> | undefined;
-  if (!timestamps || !quote) return null;
+  if (!timestamps || !quote) return saved?.data ?? null;
   const bars: Bar[] = [];
   for (let i = 0; i < timestamps.length; i += 1) {
     const close = adj?.[i] ?? quote.close?.[i];
@@ -231,28 +253,28 @@ async function loadQuote(symbol: string, live = false): Promise<RawQuote | null>
     });
   }
   const meta = result.meta ?? {};
-  const livePrice = live ? numberOrNull(meta.regularMarketPrice) : null;
-  let done = live ? bars : completedBars(bars);
+  const marketTime = numberOrNull(meta.regularMarketTime) ?? 0;
+  if (saved && marketTime > 0 && saved.marketTime > marketTime) return saved.data;
+  const livePrice = numberOrNull(meta.regularMarketPrice);
+  let done = bars;
   if (livePrice && livePrice > 0) {
-    const today = etDate(Math.floor(Date.now() / 1000));
+    const today = etDate(marketTime > 0 ? marketTime : Math.floor(Date.now() / 1000));
     const last = done[done.length - 1];
     const volume = numberOrNull(meta.regularMarketVolume);
     const bar = {
-      t: Math.floor(Date.now() / 1000),
+      t: marketTime > 0 ? marketTime : Math.floor(Date.now() / 1000),
       c: livePrice,
       v: volume ?? last?.v ?? null,
     };
     done = last && etDate(last.t) === today ? done.slice(0, -1).concat({ ...last, c: livePrice, v: bar.v }) : done.concat(bar);
   }
-  if (done.length < 2) return null;
+  if (done.length < 2) return saved?.data ?? null;
   const last = done[done.length - 1];
   const vols = done.slice(-20).map((bar) => bar.v).filter((v): v is number => v != null && v > 0);
-  const change = live ? numberOrNull(meta.regularMarketChangePercent) : null;
-  const prior = numberOrNull(meta.previousClose);
-  const d1 = live
-    ? change ?? (prior && prior > 0 ? round((last.c / prior - 1) * 100) : horizonFromLast(done, 1))
-    : horizonFromLast(done, 1);
-  return {
+  const change = numberOrNull(meta.regularMarketChangePercent);
+  const prior = numberOrNull(meta.chartPreviousClose) ?? numberOrNull(meta.previousClose);
+  const d1 = change ?? (prior && prior > 0 ? round((last.c / prior - 1) * 100) : horizonFromLast(done, 1));
+  const row: RawQuote = {
     symbol,
     name: String(meta.shortName || meta.longName || symbol),
     price: last.c,
@@ -270,6 +292,8 @@ async function loadQuote(symbol: string, live = false): Promise<RawQuote | null>
     ),
     bars: done,
   };
+  quoteCache.set(symbol, { at: Date.now(), marketTime, data: row });
+  return row;
 }
 
 function horizonFromLast(bars: Bar[], sessions: number): number | null {
@@ -295,22 +319,6 @@ function horizon(bars: Bar[], days: number): number | null {
   }
   if (!prev || prev.c <= 0 || prev.t === last.t) return null;
   return round((last.c / prev.c - 1) * 100);
-}
-
-function completedBars(bars: Bar[]): Bar[] {
-  if (bars.length < 3) return bars;
-  const last = bars[bars.length - 1];
-  if (etDate(last.t) !== etDate(Math.floor(Date.now() / 1000))) return bars;
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/New_York",
-    hour: "2-digit",
-    minute: "2-digit",
-    hourCycle: "h23",
-  }).formatToParts(new Date());
-  const hour = Number(parts.find((part) => part.type === "hour")?.value ?? "0");
-  const minute = Number(parts.find((part) => part.type === "minute")?.value ?? "0");
-  if (hour * 60 + minute < 16 * 60 + 20) return bars.slice(0, -1);
-  return bars;
 }
 
 function ratioZ(spot: Bar[], name: Bar[]): number | null {
@@ -392,6 +400,7 @@ function ratioSeries(spotBars: Bar[], etfBars: Bar[]): Omit<ChainRatio, "chain" 
 }
 
 async function loadCnn(): Promise<CnnFear | null> {
+  if (cnnCache && Date.now() - cnnCache.at < 15 * 60 * 1000) return cnnCache.data;
   const response = await fetch("https://production.dataviz.cnn.io/index/fearandgreed/graphdata", {
     headers: {
       "user-agent": "Mozilla/5.0 (compatible; MarketDesk/1.0)",
@@ -426,7 +435,7 @@ async function loadCnn(): Promise<CnnFear | null> {
       .map((point) => ({ d: new Date(Number(point.x)).toISOString().slice(0, 10), v: Math.round(Number(point.y)) })),
     40,
   );
-  return {
+  const row: CnnFear = {
     score: Math.round(score),
     rating: titleCase(String(headline.rating || fearLabel(score))),
     previousClose: finite(headline.previous_close),
@@ -437,6 +446,8 @@ async function loadCnn(): Promise<CnnFear | null> {
     history,
     parts,
   };
+  cnnCache = { at: Date.now(), data: row };
+  return row;
 }
 
 function titleCase(value: string): string {
@@ -473,6 +484,7 @@ type FredPack = {
 };
 
 async function loadFred(): Promise<FredPack> {
+  if (fredCache && Date.now() - fredCache.at < 30 * 60 * 1000) return fredCache.data;
   const ids = [
     ...TENORS.map((tenor) => tenor.id),
     "T10Y2Y",
@@ -570,7 +582,7 @@ async function loadFred(): Promise<FredPack> {
     ? round(Math.sqrt(changes.reduce((sum, value) => sum + value ** 2, 0) / changes.length) * Math.sqrt(252) * 100, 0)
     : null;
 
-  return {
+  const pack: FredPack = {
     curves,
     months,
     spreadPath,
@@ -585,6 +597,8 @@ async function loadFred(): Promise<FredPack> {
     macro: await withExpected(buildMacro(series, latest)),
     macroCharts: buildMacroCharts(series),
   };
+  fredCache = { at: Date.now(), data: pack };
+  return pack;
 }
 
 const MACRO_CHARTS: { id: string; label: string; source: string; yoy: boolean }[] = [

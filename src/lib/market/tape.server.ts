@@ -19,6 +19,7 @@ const INDEXES: { symbol: string; label: string; note?: string }[] = [
 ];
 
 let tapeCache: { at: number; data: Tape } | null = null;
+let tapeFlight: Promise<Tape> | null = null;
 let breadthCache: { at: number; points: BreadthPoint[]; members: number; note: string } | null = null;
 const HISTORY_MS = 15 * 60 * 1000;
 const historyCache = new Map<string, { at: number; points: TapePoint[]; price: number | null; time: number | null }>();
@@ -41,11 +42,20 @@ const timeFmt = new Intl.DateTimeFormat("en-US", {
   minute: "2-digit",
 });
 
-export async function loadTape(live = false): Promise<Tape> {
-  if (!live && tapeCache && Date.now() - tapeCache.at < 30 * 60 * 1000) return tapeCache.data;
+export function loadTape(_live = true, fresh = false): Promise<Tape> {
+  if (!fresh && tapeCache && Date.now() - tapeCache.at < 50_000) return Promise.resolve(tapeCache.data);
+  if (tapeFlight) return tapeFlight;
+  const flight = buildTape().finally(() => {
+    if (tapeFlight === flight) tapeFlight = null;
+  });
+  tapeFlight = flight;
+  return flight;
+}
+
+async function buildTape(): Promise<Tape> {
   const [indexes, day, breadth] = await Promise.all([
-    mapPool(INDEXES, 4, (item) => loadIndex(item.symbol, item.label, live, item.note)),
-    live ? loadIntraday("^GSPC") : Promise.resolve([] as TapePoint[]),
+    mapPool(INDEXES, 4, (item) => loadIndex(item.symbol, item.label, true, item.note)),
+    loadIntraday("^GSPC"),
     cachedBreadth(),
   ]);
   const ready = indexes.filter((row): row is TapeIndex & { points: TapePoint[]; quoteTime: string | null } => row != null);
@@ -61,7 +71,7 @@ export async function loadTape(live = false): Promise<Tape> {
     note: breadth.note,
     quoteTime: spx.quoteTime,
   };
-  if (!live) tapeCache = { at: Date.now(), data };
+  tapeCache = { at: Date.now(), data };
   return data;
 }
 
@@ -82,7 +92,6 @@ async function loadIndex(symbol: string, label: string, live: boolean, note?: st
       quoteUnix = quote?.time ?? hist.time;
     }
   }
-  if (!live) points = dropOpenSession(points);
   if (livePrice && livePrice > 0) {
     const today = etDate(Math.floor(Date.now() / 1000));
     const last = points[points.length - 1];
@@ -117,6 +126,8 @@ async function dailyHistory(symbol: string): Promise<{ at: number; points: TapeP
   if (collapsed.length < 2) return hit ?? null;
   const meta = result?.meta ?? {};
   const row = { at: Date.now(), points: collapsed, price: num(meta.regularMarketPrice), time: num(meta.regularMarketTime) };
+  const prev = historyCache.get(symbol);
+  if (prev && row.time && prev.time && prev.time > row.time) return prev;
   historyCache.set(symbol, row);
   return row;
 }
@@ -147,7 +158,7 @@ async function loadIntraday(symbol: string): Promise<TapePoint[]> {
 }
 
 async function cachedBreadth(): Promise<{ points: BreadthPoint[]; members: number; note: string }> {
-  if (breadthCache && Date.now() - breadthCache.at < 6 * 60 * 60 * 1000) {
+  if (breadthCache && Date.now() - breadthCache.at < 15 * 60 * 1000) {
     return { points: breadthCache.points, members: breadthCache.members, note: breadthCache.note };
   }
   const breadth = await loadBreadth();
@@ -203,8 +214,7 @@ async function loadBreadth(): Promise<{ points: BreadthPoint[]; members: number;
   const note = priced
     ? `Net breadth adds, each day, how many current S&P 500 members rose minus how many fell. ${priced} of ${symbols.length} members had a price history. The membership is today's list, so older years include companies that were not in the index yet and miss ones that have left. A move under 0.05% counts as flat and is left out of the net.`
     : "S&P 500 membership loaded, but the daily price history did not.";
-  const trimmed = dropOpenBreadth(points);
-  return { points: trimmed, members: priced, note };
+  return { points, members: priced, note };
 }
 
 function collapseDays(points: TapePoint[]): TapePoint[] {
@@ -215,32 +225,6 @@ function collapseDays(points: TapePoint[]): TapePoint[] {
     else out.push(point);
   }
   return out;
-}
-
-function dropOpenBreadth(points: BreadthPoint[]): BreadthPoint[] {
-  if (points.length < 3) return points;
-  const today = etDate(Math.floor(Date.now() / 1000));
-  if (points[points.length - 1]?.d !== today || !beforeClose()) return points;
-  return points.slice(0, -1);
-}
-
-function dropOpenSession(points: TapePoint[]): TapePoint[] {
-  if (points.length < 3) return points;
-  const today = etDate(Math.floor(Date.now() / 1000));
-  if (points[points.length - 1]?.d !== today || !beforeClose()) return points;
-  return points.slice(0, -1);
-}
-
-function beforeClose(): boolean {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/New_York",
-    hour: "2-digit",
-    minute: "2-digit",
-    hourCycle: "h23",
-  }).formatToParts(new Date());
-  const hour = Number(parts.find((part) => part.type === "hour")?.value ?? "0");
-  const minute = Number(parts.find((part) => part.type === "minute")?.value ?? "0");
-  return hour * 60 + minute < 16 * 60 + 20;
 }
 
 function etDate(unix: number): string {

@@ -9,7 +9,7 @@ const cache = new Map<string, { at: number; data: OptBook }>();
 
 export async function loadOptions(symbol: string, live = false): Promise<OptBook> {
   const saved = cache.get(symbol);
-  if (!live && saved && Date.now() - saved.at < 3 * 60 * 1000) return saved.data;
+  if (!live && saved && Date.now() - saved.at < 50_000) return saved.data;
   const crumb = await yahooCrumb();
   if (!crumb) throw new Error("The option feed did not accept a session. Try refresh.");
   const [first, history] = await Promise.all([yahooOptions(symbol, crumb), spark(symbol)]);

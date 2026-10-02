@@ -44,7 +44,7 @@ export function OptionsTab() {
   const query = useQuery({
     queryKey: ["options", symbol],
     queryFn: () => getOptions({ data: { symbol, live: liveRef.current } }),
-    staleTime: 3 * 60 * 1000,
+    staleTime: 50_000,
   });
 
   useEffect(() => {

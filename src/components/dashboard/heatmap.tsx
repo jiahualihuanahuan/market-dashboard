@@ -42,7 +42,9 @@ export function HeatmapTab() {
   const query = useQuery({
     queryKey: ["heatmap", "v2", index],
     queryFn: () => getHeatmap({ data: { index, live: liveRef.current } }),
-    staleTime: 8 * 60 * 1000,
+    staleTime: 50_000,
+    refetchInterval: 60_000,
+    refetchIntervalInBackground: false,
   });
 
   useEffect(() => {

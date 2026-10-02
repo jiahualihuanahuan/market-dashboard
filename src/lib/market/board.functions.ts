@@ -2,11 +2,10 @@ import { createServerFn } from "@tanstack/react-start";
 
 function boardFlag(input: unknown): { fresh: boolean; live: boolean } {
   if (typeof input === "object" && input !== null) {
-    const live = "live" in input && (input as { live?: boolean }).live === true;
-    const fresh = live || ("fresh" in input && (input as { fresh?: boolean }).fresh === true);
-    return { fresh, live };
+    const fresh = "fresh" in input && (input as { fresh?: boolean }).fresh === true;
+    return { fresh, live: true };
   }
-  return { fresh: false, live: false };
+  return { fresh: false, live: true };
 }
 
 export const getBoard = createServerFn({ method: "GET" })
@@ -18,14 +17,14 @@ export const getBoard = createServerFn({ method: "GET" })
 
 export const getTape = createServerFn({ method: "GET" })
   .validator((input: unknown) => {
-    const live = typeof input === "object" && input !== null && "live" in input
-      ? (input as { live?: boolean }).live === true
+    const fresh = typeof input === "object" && input !== null && "fresh" in input
+      ? (input as { fresh?: boolean }).fresh === true
       : false;
-    return { live };
+    return { live: true, fresh };
   })
   .handler(async ({ data }) => {
     const { loadTape } = await import("./tape.server");
-    return loadTape(data.live);
+    return loadTape(data.live, data.fresh);
   });
 
 function freshFlag(input: unknown): { fresh: boolean } {
@@ -104,6 +103,13 @@ export const getDark = createServerFn({ method: "GET" })
   .handler(async ({ data }) => {
     const { loadDark } = await import("./dark.server");
     return loadDark(data.live);
+  });
+
+export const getInsiders = createServerFn({ method: "GET" })
+  .validator(freshFlag)
+  .handler(async ({ data }) => {
+    const { loadInsiders } = await import("./insiders.server");
+    return loadInsiders(data.fresh);
   });
 
 export const getSmartMoney = createServerFn({ method: "GET" })

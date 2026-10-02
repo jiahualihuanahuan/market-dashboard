@@ -14,7 +14,7 @@ const bookCache = new Map<string, { at: number; rows: Map<string, LocalMeta> }>(
 type LocalMeta = { name: string; sector: string; industry: string; cap: number; currency: string };
 
 export async function loadHeatmap(index: string, live = false): Promise<Heatmap> {
-  if (!live && cache && cache.key === index && Date.now() - cache.at < 8 * 60 * 1000) return cache.data;
+  if (!live && cache && cache.key === index && Date.now() - cache.at < 50_000) return cache.data;
   const members = await membersOf(index);
   if (!members) throw new Error("That index is not on this desk.");
   const priced = await sparkCells(members.symbols);

@@ -14,6 +14,7 @@ import {
   Settings,
   Sigma,
   Spline,
+  Users,
   Waypoints,
 } from "lucide-react";
 import { getBoard, getFedWatch, getSmartMoney } from "@/lib/market/board.functions";
@@ -30,6 +31,7 @@ import { FrontierTab } from "@/components/dashboard/frontier";
 import { FlowsTab } from "@/components/dashboard/flows";
 import { OptionsTab } from "@/components/dashboard/options";
 import { DarkTab } from "@/components/dashboard/dark";
+import { InsidersTab } from "@/components/dashboard/insiders";
 import { Smart } from "@/components/dashboard/smart";
 import { Sectors } from "@/components/dashboard/sectors";
 import { Macro } from "@/components/dashboard/macro";
@@ -47,12 +49,13 @@ const NAV: { id: TabId; label: string; icon: typeof LayoutDashboard }[] = [
   { id: "options", label: "Options", icon: Sigma },
   { id: "dark", label: "Dark pool", icon: EyeOff },
   { id: "smart", label: "Smart money", icon: Landmark },
+  { id: "insiders", label: "Insiders", icon: Users },
   { id: "sectors", label: "Sectors", icon: PieChart },
   { id: "lookthru", label: "Lookthru", icon: Waypoints },
   { id: "settings", label: "Settings", icon: Settings },
 ];
 
-const SELF_CONTAINED = new Set<TabId>(["lookthru", "smart", "settings", "heatmap", "frontier", "flows", "options", "dark"]);
+const SELF_CONTAINED = new Set<TabId>(["lookthru", "smart", "insiders", "settings", "heatmap", "frontier", "flows", "options", "dark"]);
 
 export function Desk() {
   const search = useSearch({ from: "/" });
@@ -62,8 +65,10 @@ export function Desk() {
   const [ready, setReady] = useState(false);
   const board = useQuery({
     queryKey: ["market-board"],
-    queryFn: () => getBoard({ data: { fresh: false } }),
-    staleTime: 60 * 1000,
+    queryFn: () => getBoard({ data: { fresh: false, live: true } }),
+    staleTime: 50_000,
+    refetchInterval: 60_000,
+    refetchIntervalInBackground: false,
   });
 
   useEffect(() => {
@@ -165,6 +170,7 @@ export function Desk() {
           {search.tab === "options" ? <OptionsTab /> : null}
           {search.tab === "dark" ? <DarkTab /> : null}
           {search.tab === "smart" ? <Smart /> : null}
+          {search.tab === "insiders" ? <InsidersTab /> : null}
           {data && search.tab === "sectors" ? <Sectors board={data} /> : null}
           {data && search.tab === "macro" ? <Macro board={data} /> : null}
           {search.tab === "lookthru" ? <LookthruApp /> : null}

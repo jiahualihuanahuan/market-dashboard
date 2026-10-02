@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Bar, BarChart, CartesianGrid, Cell, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import type { Board, CnnFear, Quote } from "@/lib/market/types";
@@ -164,15 +164,21 @@ function UsTape() {
   const [cardRange, setCardRange] = useState<RangeId>("day");
   const [priceRange, setPriceRange] = useState<RangeId>("y1");
   const [breadthRange, setBreadthRange] = useState<RangeId>("y1");
+  const freshRef = useRef(false);
   const query = useQuery({
     queryKey: ["us-tape"],
-    queryFn: () => getTape({ data: { live: true } }),
-    staleTime: 55_000,
+    queryFn: () => {
+      const fresh = freshRef.current;
+      freshRef.current = false;
+      return getTape({ data: { live: true, fresh } });
+    },
+    staleTime: 50_000,
     refetchInterval: 60_000,
     refetchIntervalInBackground: false,
   });
   useEffect(() => {
     const onRefresh = () => {
+      freshRef.current = true;
       void query.refetch();
     };
     window.addEventListener("desk-refresh", onRefresh);
