@@ -9,3 +9,11 @@ export const COMMODITY_CHARTS = [
   { symbol: "DBA", label: "Agriculture" },
   { symbol: "URNM", label: "Uranium" },
 ] as const;
+
+export const COMMODITY_RATIOS = [
+  { chain: "gold", spot: "GC=F", spotLabel: "Gold", etf: "GDX", etfLabel: "GDX" },
+  { chain: "silver", spot: "SI=F", spotLabel: "Silver", etf: "SIL", etfLabel: "SIL" },
+  { chain: "copper", spot: "HG=F", spotLabel: "Copper", etf: "COPX", etfLabel: "COPX" },
+  { chain: "energy", spot: "CL=F", spotLabel: "WTI", etf: "XLE", etfLabel: "XLE" },
+  { chain: "uranium", spot: "SRUUF", spotLabel: "Sprott physical", etf: "URNM", etfLabel: "URNM" },
+] as const;

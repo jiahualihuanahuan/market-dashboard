@@ -1,5 +1,5 @@
 import { readCache, writeCache } from "./store.server.ts";
-import { COMMODITY_CHARTS } from "./commodity.ts";
+import { COMMODITY_CHARTS, COMMODITY_RATIOS } from "./commodity.ts";
 import type { TapePoint } from "./tape.ts";
 
 const UA = "Mozilla/5.0 (compatible; MarketDesk/1.0)";
@@ -30,6 +30,49 @@ export async function loadCommodityChart(symbol: string, live = false): Promise<
   const row = { at: Date.now(), daily, day };
   writeCache(key, row);
   return { symbol: item.symbol, label: item.label, daily, day };
+}
+
+export type RatioPoint = { d: string; ratio: number };
+
+export type CommodityRatio = {
+  chain: string;
+  spotLabel: string;
+  etfLabel: string;
+  daily: RatioPoint[];
+  day: RatioPoint[];
+};
+
+export async function loadCommodityRatio(chain: string, live = false): Promise<CommodityRatio | null> {
+  const pair = COMMODITY_RATIOS.find((row) => row.chain === chain);
+  if (!pair) return null;
+  const key = `ratio-${pair.chain}`;
+  const cached = readCache<{ at: number; daily: RatioPoint[]; day: RatioPoint[] }>(key);
+  if (!live && cached && Date.now() - cached.at < 60_000 && cached.daily.length > 20) {
+    return { chain: pair.chain, spotLabel: pair.spotLabel, etfLabel: pair.etfLabel, daily: cached.daily, day: cached.day };
+  }
+  const keepDaily = cached && Date.now() - cached.at < 6 * 60 * 60 * 1000 && !live ? cached.daily : null;
+  const [spotDaily, etfDaily, spotDay, etfDay] = await Promise.all([
+    keepDaily ? Promise.resolve([] as TapePoint[]) : bars(pair.spot, "1d", "10y", false),
+    keepDaily ? Promise.resolve([] as TapePoint[]) : bars(pair.etf, "1d", "10y", false),
+    bars(pair.spot, "5m", "1d", true),
+    bars(pair.etf, "5m", "1d", true),
+  ]);
+  const daily = keepDaily ?? align(spotDaily, etfDaily);
+  const day = align(spotDay, etfDay);
+  if (daily.length < 8) throw new Error(`${pair.etfLabel} versus ${pair.spotLabel} did not load.`);
+  writeCache(key, { at: Date.now(), daily, day });
+  return { chain: pair.chain, spotLabel: pair.spotLabel, etfLabel: pair.etfLabel, daily, day };
+}
+
+function align(spot: TapePoint[], etf: TapePoint[]): RatioPoint[] {
+  const byDay = new Map(spot.map((point) => [point.d, point.v]));
+  const out: RatioPoint[] = [];
+  for (const row of etf) {
+    const base = byDay.get(row.d);
+    if (!(base && base > 0 && row.v > 0)) continue;
+    out.push({ d: row.d, ratio: row.v / base });
+  }
+  return out;
 }
 
 async function bars(symbol: string, interval: string, range: string, clock: boolean): Promise<TapePoint[]> {

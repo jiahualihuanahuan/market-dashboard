@@ -13,13 +13,13 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import type { Board, ChainRatio, Quote } from "@/lib/market/types";
+import type { Board, Quote } from "@/lib/market/types";
 import { CHAINS, UNIVERSE, UNIVERSE_BY_SYMBOL, type ChainId } from "@/lib/market/universe";
 import { fmtPrice } from "@/lib/market/format";
 import { Panel, Tone, Heat, tooltipStyle } from "@/components/dashboard/bits";
 import { cn } from "@/lib/utils";
 import { useNavigate, useSearch } from "@tanstack/react-router";
-import { getCommodityChart } from "@/lib/market/board.functions";
+import { getCommodityChart, getCommodityRatio } from "@/lib/market/board.functions";
 import { COMMODITY_CHARTS } from "@/lib/market/commodity";
 import { RANGES, percentChange, sliceSeries, type RangeId } from "@/lib/market/tape";
 
@@ -111,7 +111,7 @@ export function Commodities({ board }: { board: Board }) {
             );
           })}
         </div>
-        <RatioChart chain={chain} ratio={(board.ratios ?? []).find((item) => item.chain === chain) ?? null} />
+        <RatioChart chain={chain} />
       </Panel>
 
       {selected ? (
@@ -253,7 +253,27 @@ function CommodityPrice() {
   );
 }
 
-function RatioChart({ chain, ratio }: { chain: ChainId; ratio: ChainRatio | null }) {
+function RatioChart({ chain }: { chain: ChainId }) {
+  const [range, setRange] = useState<RangeId>("y1");
+  const liveRef = useRef(false);
+  const query = useQuery({
+    queryKey: ["commodity-ratio", chain],
+    queryFn: () => {
+      const live = liveRef.current;
+      liveRef.current = false;
+      return getCommodityRatio({ data: { chain, live } });
+    },
+    enabled: chain !== "ag",
+    staleTime: 60_000,
+  });
+  useEffect(() => {
+    const onRefresh = () => {
+      liveRef.current = true;
+      void query.refetch();
+    };
+    window.addEventListener("desk-refresh", onRefresh);
+    return () => window.removeEventListener("desk-refresh", onRefresh);
+  }, [query]);
   if (chain === "ag") {
     return (
       <p className="mt-4 text-sm text-muted">
@@ -261,73 +281,94 @@ function RatioChart({ chain, ratio }: { chain: ChainId; ratio: ChainRatio | null
       </p>
     );
   }
-  if (!ratio || ratio.points.length < 2 || ratio.band == null) {
-    return <p className="mt-4 text-sm text-muted">The miner ETF ratio is not available for this chain yet.</p>;
-  }
-  const band = ratio.band;
-  const outside = ratio.z != null && Math.abs(ratio.z) >= 1.5;
-  const rich = (ratio.z ?? 0) >= 1.5;
-  const read = outside
-    ? `${ratio.etfLabel} is ${rich ? "rich" : "cheap"} versus ${ratio.spotLabel}. The ratio sits ${Math.abs(ratio.gap ?? 0).toFixed(1)}% ${rich ? "above" : "below"} its last 60 sessions, ${ratio.z?.toFixed(1)}σ.`
-    : `${ratio.etfLabel} versus ${ratio.spotLabel} is inside a normal range${ratio.z == null ? "" : ` (${ratio.z.toFixed(1)}σ)`}. The dashed lines are 1.5 standard deviations.`;
-
+  const book = query.data;
+  const view = useMemo(() => (book ? ratioWindow(book, range) : null), [book, range]);
   return (
     <div className="mt-4 border-t border-line pt-4">
-      <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
-        <div>
-          <p className="text-sm font-medium">
-            {ratio.etfLabel} / {ratio.spotLabel}
-          </p>
-          <p className="text-xs text-muted">
-            Only this ratio: the miner fund divided by the spot price. Zero is its average over the last 60 sessions. The dashed lines are 1.5 standard deviations.
-          </p>
-        </div>
-        <p className={cn("font-mono text-sm tabular-nums", outside ? "text-warn" : "text-muted")}>
-          {ratio.gap == null ? "—" : `${ratio.gap > 0 ? "+" : ""}${ratio.gap.toFixed(1)}%`}
-          <span className="ml-2 text-xs">{outside ? (rich ? "Rich" : "Cheap") : "Usual"}</span>
+      <div className="mb-3">
+        <p className="text-sm font-medium">{book ? `${book.etfLabel} / ${book.spotLabel}` : "Miner fund / spot"}</p>
+        <p className="text-xs text-muted">
+          The miner fund divided by the spot price. Zero is the average inside the window you pick. The dashed lines are 1.5 standard deviations for that same window. Past either line, the relationship is unusual for this stretch of time, not a signal to trade.
         </p>
       </div>
-      <div className="h-72">
-        <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart data={ratio.points} margin={{ top: 16, right: 8, left: 0, bottom: 0 }}>
-            <CartesianGrid stroke="var(--color-line)" vertical={false} />
-            <XAxis
-              dataKey="d"
-              tick={{ fill: "var(--color-subtle)", fontSize: 11 }}
-              minTickGap={28}
-              tickFormatter={(value: string) => value.slice(5)}
-            />
-            <YAxis
-              tick={{ fill: "var(--color-subtle)", fontSize: 11 }}
-              width={44}
-              unit="%"
-              domain={[(dataMin: number) => Math.min(dataMin, -band * 1.2), (dataMax: number) => Math.max(dataMax, band * 1.2)]}
-            />
-            <Tooltip
-              {...tooltipStyle}
-              formatter={(value) => {
-                const number = Number(value);
-                return [`${number > 0 ? "+" : ""}${number.toFixed(1)}%`, "Miner fund / spot"];
-              }}
-            />
-            <ReferenceLine y={0} stroke="var(--color-muted)" strokeDasharray="3 3" />
-            <ReferenceLine
-              y={band}
-              stroke="var(--color-warn)"
-              strokeDasharray="5 4"
-              label={{ value: "Rich", fill: "var(--color-warn)", fontSize: 11, position: "insideTopRight" }}
-            />
-            <ReferenceLine
-              y={-band}
-              stroke="var(--color-warn)"
-              strokeDasharray="5 4"
-              label={{ value: "Cheap", fill: "var(--color-warn)", fontSize: 11, position: "insideBottomRight" }}
-            />
-            <Line dataKey="gap" name="gap" stroke="var(--color-accent)" dot={false} strokeWidth={2} connectNulls />
-          </ComposedChart>
-        </ResponsiveContainer>
+      <div className="mb-3 flex gap-2 overflow-x-auto">
+        {RANGES.map(([id, name]) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => setRange(id)}
+            className={cn(
+              "h-11 shrink-0 rounded-full border px-3 text-sm",
+              range === id ? "border-fg bg-elevated text-fg" : "border-line text-muted",
+            )}
+          >
+            {name}
+          </button>
+        ))}
       </div>
-      <p className="mt-3 text-sm text-muted">{read} A z-score of 0 is typical for the last 60 sessions. Past 1.5 either way is unusual. Rich means the miner fund is expensive versus the metal. Cheap means the metal has run ahead of the miners. Not a signal to trade.</p>
+      {query.isPending ? <p className="text-sm text-muted">Reading the miner fund and the spot price.</p> : null}
+      {query.isError ? <p className="text-sm text-muted">{query.error instanceof Error ? query.error.message : "The ratio did not load."}</p> : null}
+      {book && !view ? <p className="text-sm text-muted">Not enough overlapping prices in this window.</p> : null}
+      {view ? (
+        <>
+          <p className={cn("mb-2 font-mono text-sm tabular-nums", view.outside ? "text-warn" : "text-muted")}>
+            {view.gap > 0 ? "+" : ""}{view.gap.toFixed(1)}%
+            <span className="ml-2 text-xs">{view.outside ? (view.rich ? "Rich" : "Cheap") : "Usual"} · {view.z.toFixed(1)}σ</span>
+          </p>
+          <div className="h-72">
+            <ResponsiveContainer width="100%" height="100%">
+              <ComposedChart data={view.points} margin={{ top: 16, right: 8, left: 0, bottom: 0 }}>
+                <CartesianGrid stroke="var(--color-line)" vertical={false} />
+                <XAxis dataKey="d" tick={{ fill: "var(--color-subtle)", fontSize: 11 }} minTickGap={28} tickFormatter={(value: string) => (range === "day" ? value : value.slice(5))} />
+                <YAxis
+                  tick={{ fill: "var(--color-subtle)", fontSize: 11 }}
+                  width={44}
+                  unit="%"
+                  domain={[(dataMin: number) => Math.min(dataMin, -view.band * 1.2), (dataMax: number) => Math.max(dataMax, view.band * 1.2)]}
+                />
+                <Tooltip
+                  {...tooltipStyle}
+                  formatter={(value) => {
+                    const number = Number(value);
+                    return [`${number > 0 ? "+" : ""}${number.toFixed(1)}%`, "Miner fund / spot"];
+                  }}
+                />
+                <ReferenceLine y={0} stroke="var(--color-muted)" strokeDasharray="3 3" />
+                <ReferenceLine y={view.band} stroke="var(--color-warn)" strokeDasharray="5 4" label={{ value: "Rich", fill: "var(--color-warn)", fontSize: 11, position: "insideTopRight" }} />
+                <ReferenceLine y={-view.band} stroke="var(--color-warn)" strokeDasharray="5 4" label={{ value: "Cheap", fill: "var(--color-warn)", fontSize: 11, position: "insideBottomRight" }} />
+                <Line dataKey="gap" name="gap" stroke="var(--color-accent)" dot={false} strokeWidth={2} connectNulls isAnimationActive={false} />
+              </ComposedChart>
+            </ResponsiveContainer>
+          </div>
+          <p className="mt-3 text-sm text-muted">
+            {view.outside
+              ? `${book?.etfLabel} is ${view.rich ? "rich" : "cheap"} versus ${book?.spotLabel} over this window.`
+              : `${book?.etfLabel} versus ${book?.spotLabel} is inside a normal range for this window.`}
+            {" "}Rich means the miner fund is expensive versus the metal. Cheap means the metal has run ahead of the miners.
+          </p>
+        </>
+      ) : null}
     </div>
   );
+}
+
+function ratioWindow(book: { daily: { d: string; ratio: number }[]; day: { d: string; ratio: number }[] }, range: RangeId) {
+  const source = range === "day" && book.day.length > 4 ? book.day : sliceSeries(book.daily, range === "day" ? "week" : range);
+  if (source.length < 4) return null;
+  const mean = source.reduce((sum, row) => sum + row.ratio, 0) / source.length;
+  const variance = source.reduce((sum, row) => sum + (row.ratio - mean) ** 2, 0) / source.length;
+  const sd = Math.sqrt(variance);
+  if (!(mean > 0) || !(sd > 1e-10)) return null;
+  const last = source[source.length - 1];
+  const gap = ((last.ratio / mean) - 1) * 100;
+  const z = (last.ratio - mean) / sd;
+  const band = (1.5 * sd / mean) * 100;
+  return {
+    gap,
+    z,
+    band,
+    outside: Math.abs(z) >= 1.5,
+    rich: z >= 1.5,
+    points: source.map((row) => ({ d: row.d, gap: ((row.ratio / mean) - 1) * 100 })),
+  };
 }
