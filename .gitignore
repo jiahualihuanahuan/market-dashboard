@@ -6,5 +6,4 @@ artifacts
 .env
 *.log
 .DS_Store
-
-.node_modules.lock
+data/cache

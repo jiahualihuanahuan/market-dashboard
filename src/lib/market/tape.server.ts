@@ -1,4 +1,6 @@
 import { membersOf } from "./breadth.server.ts";
+import { latestPrint, preferPrint } from "./prints.ts";
+import { readCache, writeCache } from "./store.server.ts";
 import { percentChange, type BreadthPoint, type RangeId, type Tape, type TapeIndex, type TapePoint } from "./tape.ts";
 
 const UA = "Mozilla/5.0 (compatible; MarketDesk/1.0)";
@@ -21,8 +23,9 @@ const INDEXES: { symbol: string; label: string; note?: string }[] = [
 let tapeCache: { at: number; data: Tape } | null = null;
 let tapeFlight: Promise<Tape> | null = null;
 let breadthCache: { at: number; points: BreadthPoint[]; members: number; note: string } | null = null;
-const HISTORY_MS = 15 * 60 * 1000;
+const HISTORY_MS = 6 * 60 * 60 * 1000;
 const historyCache = new Map<string, { at: number; points: TapePoint[]; price: number | null; time: number | null }>();
+let historyHydrated = false;
 
 const dateFmt = new Intl.DateTimeFormat("en-CA", {
   timeZone: "America/New_York",
@@ -79,35 +82,28 @@ async function loadIndex(symbol: string, label: string, live: boolean, note?: st
   const hist = await dailyHistory(symbol);
   if (!hist) return null;
   let points = hist.points.map((point) => ({ ...point }));
-  let livePrice: number | null = null;
-  let quoteUnix: number | null = null;
-  if (live) {
-    const justFetched = Date.now() - hist.at < 45_000 && hist.price;
-    if (justFetched) {
-      livePrice = hist.price;
-      quoteUnix = hist.time;
-    } else {
-      const quote = await liveQuote(symbol);
-      livePrice = quote?.price ?? hist.price;
-      quoteUnix = quote?.time ?? hist.time;
-    }
-  }
-  if (livePrice && livePrice > 0) {
-    const today = etDate(Math.floor(Date.now() / 1000));
+  const quote = live ? await liveQuote(symbol) : null;
+  const stored = hist.price && hist.price > 0 ? { price: hist.price, time: hist.time ?? 0 } : null;
+  const print = preferPrint(stored, quote);
+  if (print && print.price > 0) {
+    const today = etDate(print.time > 0 ? print.time : Math.floor(Date.now() / 1000));
     const last = points[points.length - 1];
-    const bar = { d: today, v: Math.round(livePrice * 100) / 100 };
-    points = last?.d === today ? points.slice(0, -1).concat(bar) : points.concat(bar);
+    if (!last || last.d <= today) {
+      const bar = { d: today, v: Math.round(print.price * 100) / 100 };
+      points = last?.d === today ? points.slice(0, -1).concat(bar) : points.concat(bar);
+    }
   }
   if (points.length < 2) return null;
   const closes = points.map((point) => point.v);
   const dates = points.map((point) => point.d);
   const changes = {} as Record<RangeId, number | null>;
   for (const range of RANGES) changes[range] = percentChange(closes, dates, range);
-  const quoteTime = live && quoteUnix ? clockFmt.format(new Date(quoteUnix * 1000)) : null;
+  const quoteTime = live && print?.time ? clockFmt.format(new Date(print.time * 1000)) : null;
   return { symbol, label, price: points[points.length - 1].v, changes, points: symbol === "^GSPC" ? points : [], quoteTime, note };
 }
 
 async function dailyHistory(symbol: string): Promise<{ at: number; points: TapePoint[]; price: number | null; time: number | null } | null> {
+  hydrateHistory();
   const hit = historyCache.get(symbol);
   if (hit && Date.now() - hit.at < HISTORY_MS) return hit;
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=10y&includeAdjustedClose=true`;
@@ -125,24 +121,37 @@ async function dailyHistory(symbol: string): Promise<{ at: number; points: TapeP
   const collapsed = collapseDays(points);
   if (collapsed.length < 2) return hit ?? null;
   const meta = result?.meta ?? {};
-  const row = { at: Date.now(), points: collapsed, price: num(meta.regularMarketPrice), time: num(meta.regularMarketTime) };
+  const live = latestPrint(meta);
+  const row = { at: Date.now(), points: collapsed, price: live?.price ?? null, time: live?.time ?? null };
   const prev = historyCache.get(symbol);
-  if (prev && row.time && prev.time && prev.time > row.time) return prev;
+  if (prev && row.points[row.points.length - 1].d < prev.points[prev.points.length - 1].d) return prev;
   historyCache.set(symbol, row);
+  persistHistory();
   return row;
 }
 
-async function liveQuote(symbol: string): Promise<{ price: number; time: number | null } | null> {
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=5d`;
+async function liveQuote(symbol: string): Promise<{ price: number; time: number } | null> {
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1m&range=1d&includePrePost=true`;
   const json = await fetchJson(url);
-  const meta = json?.chart?.result?.[0]?.meta;
-  const price = num(meta?.regularMarketPrice);
-  if (!price || !(price > 0)) return null;
-  return { price, time: num(meta?.regularMarketTime) };
+  const result = json?.chart?.result?.[0];
+  if (!result) return null;
+  const timestamps = result.timestamp as number[] | undefined;
+  const closes = result.indicators?.quote?.[0]?.close as Array<number | null> | undefined;
+  let bar: { price: number; time: number } | null = null;
+  if (timestamps && closes) {
+    for (let i = timestamps.length - 1; i >= 0; i -= 1) {
+      const close = closes[i];
+      if (typeof close === "number" && close > 0 && timestamps[i]) {
+        bar = { price: close, time: timestamps[i] };
+        break;
+      }
+    }
+  }
+  return preferPrint(latestPrint(result.meta), bar);
 }
 
 async function loadIntraday(symbol: string): Promise<TapePoint[]> {
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=5m&range=1d`;
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=5m&range=1d&includePrePost=true`;
   const json = await fetchJson(url);
   const result = json?.chart?.result?.[0];
   const timestamps = result?.timestamp as number[] | undefined;
@@ -161,9 +170,30 @@ async function cachedBreadth(): Promise<{ points: BreadthPoint[]; members: numbe
   if (breadthCache && Date.now() - breadthCache.at < 15 * 60 * 1000) {
     return { points: breadthCache.points, members: breadthCache.members, note: breadthCache.note };
   }
+  const stored = readCache<{ at: number; points: BreadthPoint[]; members: number; note: string }>("breadth");
+  if (!breadthCache && stored && Date.now() - stored.at < 15 * 60 * 1000) {
+    breadthCache = stored;
+    return { points: stored.points, members: stored.members, note: stored.note };
+  }
   const breadth = await loadBreadth();
   breadthCache = { at: Date.now(), ...breadth };
+  writeCache("breadth", breadthCache);
   return breadth;
+}
+
+function hydrateHistory(): void {
+  if (historyHydrated) return;
+  historyHydrated = true;
+  const saved = readCache<Array<{ symbol: string; at: number; points: TapePoint[]; price: number | null; time: number | null }>>("tape-history");
+  if (!saved) return;
+  for (const row of saved) {
+    if (!row?.symbol || !row.points?.length || historyCache.has(row.symbol)) continue;
+    historyCache.set(row.symbol, { at: row.at, points: row.points, price: row.price, time: row.time });
+  }
+}
+
+function persistHistory(): void {
+  writeCache("tape-history", [...historyCache.entries()].map(([symbol, row]) => ({ symbol, ...row })));
 }
 
 async function loadBreadth(): Promise<{ points: BreadthPoint[]; members: number; note: string }> {
@@ -233,10 +263,6 @@ function etDate(unix: number): string {
 
 function etTime(unix: number): string {
   return timeFmt.format(new Date(unix * 1000));
-}
-
-function num(value: unknown): number | null {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 async function fetchJson(url: string): Promise<any> {

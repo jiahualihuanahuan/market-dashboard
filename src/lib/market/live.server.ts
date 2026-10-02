@@ -1,4 +1,7 @@
-import { equityGauge, } from "@/lib/market/rules";
+import { equityGauge } from "@/lib/market/rules";
+import { latestPrint, preferPrint, type MarketPrint } from "@/lib/market/prints";
+import { latestPrices } from "@/lib/market/prices.server";
+import { readCache, writeCache } from "@/lib/market/store.server";
 import { fearLabel } from "@/lib/market/format";
 import { spotFor, UNIVERSE, UNIVERSE_BY_SYMBOL } from "@/lib/market/universe";
 import type {
@@ -33,8 +36,10 @@ let boardFlight: Promise<Board> | null = null;
 let fredCache: Cache<FredPack> | null = null;
 let cnnCache: Cache<CnnFear> | null = null;
 let smartCache: Cache<SmartMoney> | null = null;
-const quoteCache = new Map<string, { at: number; marketTime: number; data: RawQuote }>();
+const quoteCache = new Map<string, { at: number; barsAt: number; marketTime: number; data: RawQuote }>();
 const PRICE_MS = 50_000;
+const BARS_MS = 6 * 60 * 60 * 1000;
+let quotesHydrated = false;
 
 const TENORS: { id: string; label: string; years: number }[] = [
   { id: "DFF", label: "FF", years: 0 },
@@ -78,8 +83,8 @@ function boardReady(data: Board): boolean {
 
 async function rebuildBoard(fresh: boolean): Promise<Board> {
   const warnings: string[] = [];
-  const [quoteRows, fred, fearCrypto, indexes, fearCnn] = await Promise.all([
-    mapPool(UNIVERSE, 12, (item) => loadQuote(item.symbol, fresh).catch(() => null)),
+  const [prints, fred, fearCrypto, indexes, fearCnn] = await Promise.all([
+    latestPrices(UNIVERSE.map((item) => item.symbol)),
     loadFred().catch((error: unknown) => {
       warnings.push(error instanceof Error ? error.message : "Yield feed failed");
       return null;
@@ -88,6 +93,7 @@ async function rebuildBoard(fresh: boolean): Promise<Board> {
     import("./breadth.server").then((mod) => mod.loadIndexBreadth()).catch(() => [] as IndexBreadth[]),
     loadCnn().catch(() => null),
   ]);
+  const quoteRows = await mapPool(UNIVERSE, 12, (item) => loadQuote(item.symbol, fresh, prints.get(item.symbol) ?? null).catch(() => null));
 
   const raw = quoteRows.filter((row): row is RawQuote => row != null);
   if (raw.length < 12) throw new Error("Market prices are unavailable right now.");
@@ -230,9 +236,17 @@ type RawQuote = {
   bars: Bar[];
 };
 
-async function loadQuote(symbol: string, fresh = false): Promise<RawQuote | null> {
+async function loadQuote(symbol: string, fresh = false, print: MarketPrint | null = null): Promise<RawQuote | null> {
+  hydrateQuotes();
   const saved = quoteCache.get(symbol);
-  if (!fresh && saved && priceCacheFresh(saved.at)) return saved.data;
+  if (!fresh && saved && Date.now() - saved.at < PRICE_MS) return saved.data;
+  if (saved && Date.now() - saved.barsAt < BARS_MS) {
+    if (!print) return saved.data;
+    const next = withPrint(saved.data, print);
+    quoteCache.set(symbol, { at: Date.now(), barsAt: saved.barsAt, marketTime: next.bars[next.bars.length - 1]?.t ?? saved.marketTime, data: next });
+    persistQuotes();
+    return next;
+  }
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=1y&includeAdjustedClose=true`;
   const json = await fetchJson(url, YAHOO_UA, 14000);
   const result = json?.chart?.result?.[0];
@@ -254,26 +268,30 @@ async function loadQuote(symbol: string, fresh = false): Promise<RawQuote | null
   }
   const meta = result.meta ?? {};
   const marketTime = numberOrNull(meta.regularMarketTime) ?? 0;
-  if (saved && marketTime > 0 && saved.marketTime > marketTime) return saved.data;
-  const livePrice = numberOrNull(meta.regularMarketPrice);
+  if (saved && marketTime > 0 && saved.marketTime > marketTime && !print) return saved.data;
+  const live = preferPrint(latestPrint(meta), print);
   let done = bars;
-  if (livePrice && livePrice > 0) {
-    const today = etDate(marketTime > 0 ? marketTime : Math.floor(Date.now() / 1000));
+  if (live && live.price > 0) {
+    const today = etDate(live.time > 0 ? live.time : Math.floor(Date.now() / 1000));
     const last = done[done.length - 1];
     const volume = numberOrNull(meta.regularMarketVolume);
     const bar = {
-      t: marketTime > 0 ? marketTime : Math.floor(Date.now() / 1000),
-      c: livePrice,
+      t: live.time > 0 ? live.time : Math.floor(Date.now() / 1000),
+      c: live.price,
       v: volume ?? last?.v ?? null,
     };
-    done = last && etDate(last.t) === today ? done.slice(0, -1).concat({ ...last, c: livePrice, v: bar.v }) : done.concat(bar);
+    if (last && etDate(last.t) > today) {
+      done = bars;
+    } else {
+      done = last && etDate(last.t) === today ? done.slice(0, -1).concat({ ...last, c: live.price, v: bar.v }) : done.concat(bar);
+    }
   }
   if (done.length < 2) return saved?.data ?? null;
   const last = done[done.length - 1];
   const vols = done.slice(-20).map((bar) => bar.v).filter((v): v is number => v != null && v > 0);
-  const change = numberOrNull(meta.regularMarketChangePercent);
-  const prior = numberOrNull(meta.chartPreviousClose) ?? numberOrNull(meta.previousClose);
-  const d1 = change ?? (prior && prior > 0 ? round((last.c / prior - 1) * 100) : horizonFromLast(done, 1));
+  const priorBar = done.slice(0, -1).reverse().find((bar) => etDate(bar.t) !== etDate(last.t));
+  const prior = priorBar?.c ?? numberOrNull(meta.chartPreviousClose) ?? numberOrNull(meta.previousClose);
+  const d1 = prior && prior > 0 ? round((last.c / prior - 1) * 100) : horizonFromLast(done, 1);
   const row: RawQuote = {
     symbol,
     name: String(meta.shortName || meta.longName || symbol),
@@ -292,8 +310,47 @@ async function loadQuote(symbol: string, fresh = false): Promise<RawQuote | null
     ),
     bars: done,
   };
-  quoteCache.set(symbol, { at: Date.now(), marketTime, data: row });
+  quoteCache.set(symbol, { at: Date.now(), barsAt: Date.now(), marketTime: last.t, data: row });
+  persistQuotes();
   return row;
+}
+
+function withPrint(row: RawQuote, print: MarketPrint): RawQuote {
+  const stamp = print.time > 0 ? print.time : Math.floor(Date.now() / 1000);
+  const today = etDate(stamp);
+  const last = row.bars[row.bars.length - 1];
+  if (last && etDate(last.t) > today) return row;
+  const bars = row.bars.slice();
+  if (last && etDate(last.t) === today) bars[bars.length - 1] = { ...last, c: print.price, t: Math.max(last.t, stamp) };
+  else bars.push({ t: stamp, c: print.price, v: last?.v ?? null });
+  const end = bars[bars.length - 1];
+  const prior = [...bars].reverse().find((bar) => etDate(bar.t) !== today);
+  const d1 = prior && prior.c > 0 ? round((end.c / prior.c - 1) * 100) : row.d1;
+  return {
+    ...row,
+    price: end.c,
+    d1,
+    w1: horizon(bars, 7),
+    m1: horizon(bars, 30),
+    y1: horizon(bars, 365),
+    spark: downsample(bars.map((bar) => ({ d: etDate(bar.t), v: round(bar.c, 4) })), 36),
+    bars,
+  };
+}
+
+function hydrateQuotes(): void {
+  if (quotesHydrated) return;
+  quotesHydrated = true;
+  const saved = readCache<Array<{ at: number; barsAt: number; marketTime: number; data: RawQuote }>>("quotes");
+  if (!saved) return;
+  for (const row of saved) {
+    if (!row?.data?.symbol || quoteCache.has(row.data.symbol)) continue;
+    quoteCache.set(row.data.symbol, row);
+  }
+}
+
+function persistQuotes(): void {
+  writeCache("quotes", [...quoteCache.values()]);
 }
 
 function horizonFromLast(bars: Bar[], sessions: number): number | null {
