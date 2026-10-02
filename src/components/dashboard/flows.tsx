@@ -1,11 +1,19 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Bar, CartesianGrid, Cell, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Bar, BarChart, CartesianGrid, Cell, ComposedChart, Line, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { getFlows } from "@/lib/market/board.functions";
 import type { FlowBook, FlowFund } from "@/lib/market/flows.server";
-import { fmtCompact, fmtPct } from "@/lib/market/format";
+import { fmtCompact } from "@/lib/market/format";
 import { Panel, tooltipStyle } from "@/components/dashboard/bits";
 import { cn } from "@/lib/utils";
+
+const WINDOWS = [
+  { id: "f1", label: "1 day" },
+  { id: "f5", label: "5 days" },
+  { id: "f21", label: "21 days" },
+] as const;
+
+type WindowId = (typeof WINDOWS)[number]["id"];
 
 export function FlowsTab() {
   const liveRef = useRef(false);
@@ -34,124 +42,122 @@ export function FlowsTab() {
 
 function FlowsDesk({ book }: { book: FlowBook }) {
   const [symbol, setSymbol] = useState("SPY");
+  const [windowId, setWindowId] = useState<WindowId>("f5");
   const selected = bookFund(book, symbol) ?? book.funds.find((fund) => fund.history.length) ?? book.funds[0];
-  const spy = book.funds.find((fund) => fund.symbol === "SPY");
   const groups = [...new Set(book.funds.map((fund) => fund.group))];
-  const flags = book.funds.filter((fund) => fund.signal.startsWith("Price up, money leaving") || fund.signal.startsWith("Price down, money arriving"));
+  const windowLabel = WINDOWS.find((item) => item.id === windowId)?.label ?? "5 days";
 
   return (
     <div className="grid min-w-0 gap-4">
-      <Panel className="min-w-0" title="Creations and redemptions" kicker={spy ? `Through ${spy.asOf}` : "Issuer files"}>
+      <Panel className="min-w-0" title="Creations and redemptions" kicker={selected?.asOf ? `Through ${selected.asOf}` : "Issuer files"}>
         <p className="max-w-3xl text-sm text-muted">{book.note}</p>
         <p className="mt-3 max-w-3xl text-sm text-muted">
-          A disagreement is the signal. Price up with money leaving means the market price rose while the fund was redeeming shares, so the buyers were not the same people adding new ETF shares. It is a disagreement, not a forecast. A move under 0.15% or a flow under 0.1% of assets is treated as quiet.
+          Green is money in. Red is money out. The bars compare funds over the window you pick. Click a bar to open that fund’s daily graph. The line on the daily graph is the fund’s own price.
         </p>
-        {spy ? (
-          <p className="mt-3 text-sm">
-            SPY is {fmtPct(spy.d5)} over five sessions, with {fmtFlow(spy.f5)} created or redeemed.
-            {" "}
-            <span className={tone(spy.signal)}>{spy.signal}.</span>
-          </p>
-        ) : null}
-        {flags.length ? (
-          <ul className="mt-4 grid gap-2 sm:grid-cols-2">
-            {flags.map((fund) => (
-              <li key={fund.symbol}>
-                <button
-                  type="button"
-                  onClick={() => setSymbol(fund.symbol)}
-                  className="flex min-h-11 w-full flex-col items-start rounded-md border border-line px-3 py-2 text-left hover:bg-elevated"
-                >
-                  <span className="font-mono text-sm">{fund.symbol} <span className="text-muted">{fund.label}</span></span>
-                  <span className={cn("text-sm", tone(fund.signal))}>{fund.signal}</span>
-                  <span className="font-mono text-xs tabular-nums text-muted">{fmtPct(fund.d5)} · {fmtFlow(fund.f5)}</span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="mt-3 text-sm text-muted">No fund in this list has a five-day disagreement right now.</p>
-        )}
+        <div className="mt-4 flex flex-wrap gap-2">
+          {WINDOWS.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => setWindowId(item.id)}
+              className={cn(
+                "h-11 rounded-md border px-3 text-sm",
+                windowId === item.id ? "border-fg bg-elevated text-fg" : "border-line text-muted",
+              )}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
       </Panel>
 
       <Panel
-        title={selected ? `${selected.symbol} · ${selected.label}` : "History"}
+        title={selected ? `${selected.symbol} · ${selected.label}` : "Daily flow"}
         kicker={selected?.history.length ? `Daily flow. Running total in this window ${fmtFlow(selected.history[selected.history.length - 1]?.cum)}.` : "Daily flow"}
         className="min-w-0"
       >
-        {selected && selected.history.length ? (
-          <>
-            <p className="mb-2 text-xs text-muted">Green bars are shares created. Red bars are shares redeemed. The line is the fund's own net asset value, so you can see price and flow together.</p>
-            <div className="h-72">
-              <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={selected.history} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-                  <CartesianGrid stroke="var(--color-line)" vertical={false} />
-                  <XAxis dataKey="d" tick={{ fill: "var(--color-muted)", fontSize: 11 }} minTickGap={28} />
-                  <YAxis tickFormatter={(value) => fmtCompact(Number(value))} tick={{ fill: "var(--color-muted)", fontSize: 11 }} width={56} />
-                  <YAxis yAxisId="nav" orientation="right" domain={[(min: number) => min * 0.985, (max: number) => max * 1.015]} tickFormatter={(value) => Number(value).toFixed(0)} tick={{ fill: "var(--color-muted)", fontSize: 11 }} width={48} />
-                  <Tooltip
-                    {...tooltipStyle}
-                    formatter={(value, name) => {
-                      if (name === "nav") return [typeof value === "number" ? value.toFixed(2) : value, "NAV"];
-                      return [typeof value === "number" ? fmtFlow(value) : value, "Flow"];
-                    }}
-                  />
-                  <Bar dataKey="flow" name="flow" isAnimationActive={false}>
-                    {selected.history.map((point) => (
-                      <Cell key={point.d} fill={(point.flow ?? 0) >= 0 ? "var(--color-up)" : "var(--color-down)"} />
-                    ))}
-                  </Bar>
-                  <Line yAxisId="nav" dataKey="nav" name="nav" stroke="var(--color-accent)" dot={false} strokeWidth={1.5} isAnimationActive={false} />
-                </ComposedChart>
-              </ResponsiveContainer>
-            </div>
-          </>
-        ) : (
-          <p className="text-sm text-muted">{selected?.error ?? "No history."}</p>
-        )}
+        {selected && selected.history.length ? <DailyChart fund={selected} /> : <p className="text-sm text-muted">{selected?.error ?? "No history."}</p>}
       </Panel>
 
       {groups.map((group) => (
-        <Panel key={group} className="min-w-0" title={group} kicker="Five-day flow is the main signal. One day and one month sit beside it. Click a row for the chart.">
-          <div className="max-w-full overflow-x-auto">
-            <table className="w-full min-w-[52rem] text-sm">
-              <thead>
-                <tr className="text-left text-xs text-muted">
-                  <th className="py-2 pr-3 font-medium">Fund</th>
-                  <th className="px-2 py-2 font-medium">Assets</th>
-                  <th className="px-2 py-2 font-medium">1 day</th>
-                  <th className="px-2 py-2 font-medium">5-day price</th>
-                  <th className="px-2 py-2 font-medium">5-day flow</th>
-                  <th className="px-2 py-2 font-medium">vs assets</th>
-                  <th className="px-2 py-2 font-medium">21-day flow</th>
-                  <th className="px-2 py-2 font-medium">Signal</th>
-                </tr>
-              </thead>
-              <tbody>
-                {book.funds.filter((fund) => fund.group === group).map((fund) => (
-                  <tr
-                    key={fund.symbol}
-                    className={cn("cursor-pointer border-t border-line", fund.symbol === selected?.symbol && "bg-elevated")}
-                    onClick={() => setSymbol(fund.symbol)}
-                  >
-                    <td className="py-3 pr-3">
-                      <span className="font-mono">{fund.symbol}</span>
-                      <span className="ml-2 text-muted">{fund.label}</span>
-                    </td>
-                    <td className="px-2 py-3 font-mono tabular-nums">{fund.aum == null ? "—" : `$${fmtCompact(fund.aum)}`}</td>
-                    <td className="px-2 py-3 font-mono tabular-nums">{fmtFlow(fund.f1)}</td>
-                    <td className="px-2 py-3 font-mono tabular-nums">{fmtPct(fund.d5)}</td>
-                    <td className="px-2 py-3 font-mono tabular-nums">{fmtFlow(fund.f5)}</td>
-                    <td className="px-2 py-3 font-mono tabular-nums">{fmtShare(fund.f5, fund.aum)}</td>
-                    <td className="px-2 py-3 font-mono tabular-nums">{fmtFlow(fund.f21)}</td>
-                    <td className={cn("px-2 py-3", tone(fund.signal))}>{fund.error ? fund.error : fund.signal}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+        <Panel key={group} className="min-w-0" title={group} kicker={`${windowLabel} of money in or out. Click a bar.`}>
+          <GroupChart
+            funds={book.funds.filter((fund) => fund.group === group)}
+            windowId={windowId}
+            symbol={selected?.symbol ?? ""}
+            onPick={setSymbol}
+          />
         </Panel>
       ))}
+    </div>
+  );
+}
+
+function DailyChart({ fund }: { fund: FlowFund }) {
+  return (
+    <div className="h-72">
+      <ResponsiveContainer width="100%" height="100%">
+        <ComposedChart data={fund.history} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+          <CartesianGrid stroke="var(--color-line)" vertical={false} />
+          <XAxis dataKey="d" tick={{ fill: "var(--color-muted)", fontSize: 11 }} minTickGap={28} />
+          <YAxis tickFormatter={(value) => fmtCompact(Number(value))} tick={{ fill: "var(--color-muted)", fontSize: 11 }} width={56} />
+          <YAxis yAxisId="nav" orientation="right" domain={[(min: number) => min * 0.985, (max: number) => max * 1.015]} tickFormatter={(value) => Number(value).toFixed(0)} tick={{ fill: "var(--color-muted)", fontSize: 11 }} width={48} />
+          <Tooltip
+            {...tooltipStyle}
+            formatter={(value, name) => {
+              if (name === "nav") return [typeof value === "number" ? value.toFixed(2) : value, "Price"];
+              return [typeof value === "number" ? fmtFlow(value) : value, "Flow"];
+            }}
+          />
+          <ReferenceLine y={0} stroke="var(--color-muted)" />
+          <Bar dataKey="flow" name="flow" isAnimationActive={false}>
+            {fund.history.map((point) => (
+              <Cell key={point.d} fill={(point.flow ?? 0) >= 0 ? "var(--color-up)" : "var(--color-down)"} />
+            ))}
+          </Bar>
+          <Line yAxisId="nav" dataKey="nav" name="nav" stroke="var(--color-accent)" dot={false} strokeWidth={1.5} isAnimationActive={false} />
+        </ComposedChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+function GroupChart({ funds, windowId, symbol, onPick }: { funds: FlowFund[]; windowId: WindowId; symbol: string; onPick: (symbol: string) => void }) {
+  const rows = funds
+    .filter((fund) => fund[windowId] != null)
+    .map((fund) => ({ symbol: fund.symbol, label: fund.label, flow: fund[windowId] ?? 0 }));
+  if (!rows.length) return <p className="text-sm text-muted">{funds.find((fund) => fund.error)?.error ?? "No flow for this window."}</p>;
+  return (
+    <div style={{ height: Math.max(160, rows.length * 36) }}>
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart data={rows} layout="vertical" margin={{ top: 4, right: 16, left: 4, bottom: 0 }}>
+          <CartesianGrid stroke="var(--color-line)" horizontal={false} />
+          <XAxis type="number" tickFormatter={(value) => fmtCompact(Number(value))} tick={{ fill: "var(--color-muted)", fontSize: 11 }} />
+          <YAxis type="category" dataKey="symbol" width={52} tick={{ fill: "var(--color-muted)", fontSize: 12 }} />
+          <Tooltip
+            {...tooltipStyle}
+            formatter={(value) => [typeof value === "number" ? fmtFlow(value) : value, "Flow"]}
+            labelFormatter={(label, payload) => {
+              const row = payload?.[0]?.payload as { label?: string } | undefined;
+              return row?.label ? `${label} · ${row.label}` : String(label);
+            }}
+          />
+          <ReferenceLine x={0} stroke="var(--color-muted)" />
+          <Bar
+            dataKey="flow"
+            isAnimationActive={false}
+            cursor="pointer"
+            onClick={(row) => {
+              const next = (row as { symbol?: string }).symbol;
+              if (next) onPick(next);
+            }}
+          >
+            {rows.map((row) => (
+              <Cell key={row.symbol} fill={row.flow >= 0 ? "var(--color-up)" : "var(--color-down)"} fillOpacity={row.symbol === symbol ? 1 : 0.55} />
+            ))}
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
     </div>
   );
 }
@@ -164,16 +170,4 @@ function fmtFlow(value: number | null | undefined): string {
   if (value == null || !Number.isFinite(value)) return "—";
   const sign = value > 0 ? "+" : value < 0 ? "−" : "";
   return `${sign}$${fmtCompact(Math.abs(value))}`;
-}
-
-function fmtShare(flow: number | null, aum: number | null): string {
-  if (flow == null || aum == null || !(aum > 0)) return "—";
-  return fmtPct((flow / aum) * 100);
-}
-
-function tone(signal: string): string {
-  if (signal.startsWith("Price up, money leaving") || signal.startsWith("Price down, money arriving")) return "text-warn";
-  if (signal.includes("leaving")) return "text-down";
-  if (signal.includes("arriving")) return "text-up";
-  return "text-muted";
 }
