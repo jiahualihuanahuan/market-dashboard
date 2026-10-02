@@ -1,10 +1,123 @@
+import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { getSmartMoney } from "@/lib/market/board.functions";
+import { getHolderBook, getHolders, getSmartMoney } from "@/lib/market/board.functions";
 import { fmtCompact } from "@/lib/market/format";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Empty, Panel } from "@/components/dashboard/bits";
 
 export function Smart() {
+  return (
+    <div className="grid gap-4">
+      <Holders />
+      <Famous />
+    </div>
+  );
+}
+
+function Holders() {
+  const [text, setText] = useState("");
+  const [query, setQuery] = useState("");
+  const [cik, setCik] = useState<string | null>(null);
+  useEffect(() => {
+    const timer = setTimeout(() => setQuery(text.trim()), 250);
+    return () => clearTimeout(timer);
+  }, [text]);
+  const directory = useQuery({
+    queryKey: ["holders", query],
+    queryFn: () => getHolders({ data: { query } }),
+    staleTime: 6 * 60 * 60 * 1000,
+  });
+  const book = useQuery({
+    queryKey: ["holder-book", cik],
+    queryFn: () => getHolderBook({ data: { cik: cik ?? "" } }),
+    enabled: Boolean(cik),
+    staleTime: 6 * 60 * 60 * 1000,
+  });
+  const data = directory.data;
+
+  return (
+    <>
+      <Panel title="Every 13F filer" kicker={data ? `${data.managerCount.toLocaleString("en-US")} institutions · quarter ended ${data.quarter || "—"}` : "SEC quarterly file"}>
+        <p className="max-w-3xl text-sm text-muted">
+          A CIK is the SEC’s id number for a filer. This list is every institution in the SEC’s latest Form 13F data set, not a hand-picked group. Search a name or a CIK to open that institution’s stocks. The aggregate is every stock those filings added together. Options are left out. The file is as of the quarter end, and it usually arrives about 45 days later. Dollars are as filed, not today’s price.
+        </p>
+        <label className="mt-4 block text-sm">
+          <span className="text-muted">Institution, CIK, or stock</span>
+          <Input className="mt-2" value={text} placeholder="Berkshire, 0001067983, or Apple" onChange={(event) => setText(event.target.value)} />
+        </label>
+        {directory.isPending ? <p className="mt-3 text-sm text-muted">Reading the SEC file. The first time takes about a minute.</p> : null}
+        {directory.isError ? <p className="mt-3 text-sm text-muted">{directory.error instanceof Error ? directory.error.message : "The 13F file did not load."}</p> : null}
+        {data ? (
+          <div className="mt-4 grid gap-4 lg:grid-cols-2">
+            <div>
+              <h3 className="mb-2 text-sm font-medium">{query ? "Matching institutions" : "Largest institutions"}</h3>
+              {data.managers.length === 0 ? <p className="text-sm text-muted">No institution matches.</p> : null}
+              <ul>
+                {data.managers.map((manager) => (
+                  <li key={manager.cik} className="border-t border-line">
+                    <button type="button" className="flex w-full items-baseline justify-between gap-3 py-2 text-left text-sm" onClick={() => setCik(manager.cik)}>
+                      <span>
+                        <span className="block">{manager.name}</span>
+                        <span className="font-mono text-xs text-muted">CIK {manager.cik}</span>
+                      </span>
+                      <span className="font-mono tabular-nums text-muted">${fmtCompact(manager.value)}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <div>
+              <h3 className="mb-2 text-sm font-medium">{query ? "Matching stocks" : `Largest stocks · ${data.issuerCount.toLocaleString("en-US")} reported`}</h3>
+              {data.aggregate.length === 0 ? <p className="text-sm text-muted">No stock matches.</p> : null}
+              <ul>
+                {data.aggregate.map((row) => (
+                  <li key={row.cusip || row.issuer} className="flex items-baseline justify-between gap-3 border-t border-line py-2 text-sm">
+                    <span>
+                      <span className="block">{row.issuer}</span>
+                      <span className="text-xs text-muted">{row.managers.toLocaleString("en-US")} institutions{row.cusip ? ` · ${row.cusip}` : ""}</span>
+                    </span>
+                    <span className="font-mono tabular-nums text-muted">${fmtCompact(row.value)}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        ) : null}
+      </Panel>
+      {cik ? (
+        <Panel
+          title={book.data?.name || "Institution"}
+          kicker={book.data ? `CIK ${book.data.cik}${book.data.period ? ` · period ${book.data.period}` : ""}` : "Latest 13F"}
+          action={book.data?.url ? (
+            <a className="text-sm text-muted underline-offset-2 hover:underline" href={book.data.url} target="_blank" rel="noreferrer">Filing</a>
+          ) : null}
+        >
+          {book.isPending ? <p className="text-sm text-muted">Reading that institution’s latest 13F.</p> : null}
+          {book.isError ? <p className="text-sm text-muted">{book.error instanceof Error ? book.error.message : "That filing did not load."}</p> : null}
+          {book.data?.error ? <p className="text-sm text-muted">{book.data.error}</p> : null}
+          {book.data && !book.data.error ? (
+            <>
+              <p className="mb-3 text-sm text-muted">
+                {book.data.count.toLocaleString("en-US")} stocks, ${fmtCompact(book.data.value)} reported. Showing the {book.data.holdings.length} largest. Filed {book.data.filed || "—"}.
+              </p>
+              <ul>
+                {book.data.holdings.map((holding) => (
+                  <li key={holding.issuer} className="flex items-baseline justify-between gap-3 border-t border-line py-2 text-sm">
+                    <span>{holding.issuer}</span>
+                    <span className="font-mono tabular-nums text-muted">${fmtCompact(holding.value)}</span>
+                  </li>
+                ))}
+              </ul>
+            </>
+          ) : null}
+        </Panel>
+      ) : null}
+    </>
+  );
+}
+
+function Famous() {
   const client = useQueryClient();
   const query = useQuery({
     queryKey: ["smart-money"],

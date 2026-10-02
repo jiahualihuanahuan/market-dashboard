@@ -119,3 +119,23 @@ export const getRotation = createServerFn({ method: "GET" })
     const { loadRotation } = await import("./rotation.server");
     return loadRotation();
   });
+
+export const getHolders = createServerFn({ method: "GET" })
+  .validator((input: unknown) => {
+    const query = typeof input === "object" && input && "query" in input ? String((input as { query?: string }).query ?? "") : "";
+    return { query: query.slice(0, 80) };
+  })
+  .handler(async ({ data }) => {
+    const { loadHolders } = await import("./holders.server");
+    return loadHolders(data.query);
+  });
+
+export const getHolderBook = createServerFn({ method: "GET" })
+  .validator((input: unknown) => {
+    const cik = typeof input === "object" && input && "cik" in input ? String((input as { cik?: string }).cik ?? "") : "";
+    return { cik: cik.slice(0, 12) };
+  })
+  .handler(async ({ data }) => {
+    const { loadHolderBook } = await import("./holders.server");
+    return loadHolderBook(data.cik);
+  });

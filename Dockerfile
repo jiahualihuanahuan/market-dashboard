@@ -38,7 +38,7 @@ ENV NODE_ENV=production \
     CARE_LOG=/var/log/marketdesk/care.log
 
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends ca-certificates curl \
+  && apt-get install -y --no-install-recommends ca-certificates curl unzip \
   && rm -rf /var/lib/apt/lists/* \
   && mkdir -p /data /var/log/marketdesk /opt/marketdesk \
   && chown -R node:node /data /var/log/marketdesk
