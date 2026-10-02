@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import https from "node:https";
 import { buildFrontier, type FrontierAnchor, type FrontierModel } from "@/lib/market/frontier";
 
 const UA = "Mozilla/5.0 (compatible; MarketDesk/1.0)";
@@ -137,12 +137,12 @@ async function loadNdx(): Promise<string[]> {
   return (json.data?.data?.rows ?? []).map((row) => norm(String(row.symbol ?? ""))).filter(Boolean);
 }
 
-const YAHOO_JAR = "/tmp/frontier-yahoo.txt";
+const yahooJar = new Map<string, string>();
 let crumbCache: { value: string; at: number } | null = null;
 
 async function loadQuotes(): Promise<{ bitcoinCap: number; spyYield: number; qqqYield: number }> {
   const crumb = await yahooCrumb();
-  const body = await curlText(`https://query1.finance.yahoo.com/v7/finance/quote?symbols=BTC-USD&crumb=${encodeURIComponent(crumb)}`, true);
+  const body = await yahooText(`https://query1.finance.yahoo.com/v7/finance/quote?symbols=BTC-USD&crumb=${encodeURIComponent(crumb)}`);
   const json = JSON.parse(body) as { quoteResponse?: { result?: Array<{ marketCap?: number }> } };
   const bitcoinCap = Number(json.quoteResponse?.result?.[0]?.marketCap);
   const spyYield = await fundYield("SPY", crumb);
@@ -152,7 +152,7 @@ async function loadQuotes(): Promise<{ bitcoinCap: number; spyYield: number; qqq
 }
 
 async function fundYield(symbol: string, crumb: string): Promise<number> {
-  const body = await curlText(`https://query2.finance.yahoo.com/v10/finance/quoteSummary/${symbol}?modules=summaryDetail&crumb=${encodeURIComponent(crumb)}`, true);
+  const body = await yahooText(`https://query2.finance.yahoo.com/v10/finance/quoteSummary/${symbol}?modules=summaryDetail&crumb=${encodeURIComponent(crumb)}`);
   const json = JSON.parse(body) as { quoteSummary?: { result?: Array<{ summaryDetail?: { yield?: { raw?: number }; trailingAnnualDividendYield?: { raw?: number } } }> } };
   const detail = json.quoteSummary?.result?.[0]?.summaryDetail;
   const value = detail?.yield?.raw ?? detail?.trailingAnnualDividendYield?.raw;
@@ -161,34 +161,60 @@ async function fundYield(symbol: string, crumb: string): Promise<number> {
 
 async function yahooCrumb(): Promise<string> {
   if (crumbCache && Date.now() - crumbCache.at < 10 * 60 * 1000) return crumbCache.value;
-  await curlText("https://fc.yahoo.com", false, true);
-  const html = await curlText("https://finance.yahoo.com/quote/SPY", true);
+  await yahooText("https://fc.yahoo.com");
+  const html = await yahooText("https://finance.yahoo.com/quote/SPY");
   const crumb = html.match(/"crumb":"([^"]+)"/)?.[1];
   if (!crumb) throw new Error("Valuation session did not start.");
   crumbCache = { value: crumb, at: Date.now() };
   return crumb;
 }
 
-function curlText(url: string, sendCookie: boolean, saveCookie = false): Promise<string> {
-  const args = ["-sS", "-L", "--max-redirs", "5", "-A", UA, "--max-time", "25", "-w", "\n%{http_code}", url];
-  if (sendCookie || saveCookie) args.splice(1, 0, "-b", YAHOO_JAR);
-  if (saveCookie) args.splice(1, 0, "-c", YAHOO_JAR);
+function yahooText(url: string): Promise<string> {
+  return readYahoo(url).then(({ status, body }) => {
+    if (status >= 400 && status !== 404) throw new Error(`Valuation feed returned ${status}`);
+    return body;
+  });
+}
+
+function readYahoo(url: string, redirects = 0): Promise<{ status: number; body: string }> {
   return new Promise((resolve, reject) => {
-    execFile("curl", args, { maxBuffer: 4_000_000 }, (error, stdout) => {
-      if (error && !stdout) {
-        reject(error);
-        return;
-      }
-      const text = String(stdout);
-      const match = text.match(/\n(\d{3})$/);
-      const status = match ? Number(match[1]) : 0;
-      const body = match ? text.slice(0, match.index) : text;
-      if (status >= 400 && status !== 404) {
-        reject(new Error(`Valuation feed returned ${status}`));
-        return;
-      }
-      resolve(body);
-    });
+    const target = new URL(url);
+    const req = https.request(
+      {
+        protocol: target.protocol,
+        hostname: target.hostname,
+        path: `${target.pathname}${target.search}`,
+        method: "GET",
+        headers: {
+          "user-agent": UA,
+          accept: "text/html,application/json",
+          cookie: [...yahooJar].map(([key, value]) => `${key}=${value}`).join("; "),
+        },
+        timeout: 25000,
+        maxHeaderSize: 256 * 1024,
+      },
+      (res) => {
+        const setCookie = res.headers["set-cookie"];
+        const lines = Array.isArray(setCookie) ? setCookie : setCookie ? [setCookie] : [];
+        for (const line of lines) {
+          const pair = line.split(";")[0] ?? "";
+          const index = pair.indexOf("=");
+          if (index > 0) yahooJar.set(pair.slice(0, index).trim(), pair.slice(index + 1).trim());
+        }
+        const location = res.headers.location;
+        if (location && res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && redirects < 5) {
+          res.resume();
+          resolve(readYahoo(new URL(location, url).toString(), redirects + 1));
+          return;
+        }
+        const chunks: Buffer[] = [];
+        res.on("data", (chunk: Buffer) => chunks.push(chunk));
+        res.on("end", () => resolve({ status: res.statusCode ?? 0, body: Buffer.concat(chunks).toString("utf8") }));
+      },
+    );
+    req.on("error", reject);
+    req.on("timeout", () => req.destroy(new Error("Valuation feed timed out.")));
+    req.end();
   });
 }
 
