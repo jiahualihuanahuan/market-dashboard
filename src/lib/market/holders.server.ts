@@ -25,19 +25,34 @@ type Filing = { accession: string; cik: string; filed: string; period: string; t
 
 let cache: { at: number; data: Directory } | null = null;
 let pending: Promise<Directory> | null = null;
+const bookCache = new Map<string, { at: number; data: HolderBook }>();
+const bookFlights = new Map<string, Promise<HolderBook>>();
+let secChain: Promise<void> = Promise.resolve();
+let secLast = 0;
 
 export function loadHolders(query = ""): Promise<HolderSearch> {
   return loadDirectory().then((data) => filterDirectory(data, query));
 }
 
-export async function loadHolderBook(cikRaw: string): Promise<HolderBook> {
+export function loadHolderBook(cikRaw: string): Promise<HolderBook> {
   const cik = cikRaw.replace(/\D/g, "").padStart(10, "0");
+  const saved = bookCache.get(cik);
+  if (saved && !saved.data.error && Date.now() - saved.at < 6 * 60 * 60 * 1000) return Promise.resolve(saved.data);
+  const flight = bookFlights.get(cik);
+  if (flight) return flight;
+  const next = fetchHolderBook(cik).finally(() => {
+    if (bookFlights.get(cik) === next) bookFlights.delete(cik);
+  });
+  bookFlights.set(cik, next);
+  return next;
+}
+
+async function fetchHolderBook(cik: string): Promise<HolderBook> {
   const empty: HolderBook = { cik, name: "", filed: "", period: "", url: edgarUrl(cik), value: 0, count: 0, holdings: [], error: null };
   if (cik === "0000000000") return { ...empty, error: "That is not a CIK." };
   try {
-    const directory = await loadDirectory().catch(() => null);
-    const known = directory?.managers.find((manager) => manager.cik === cik);
     const json = await getJson(`https://data.sec.gov/submissions/CIK${cik}.json`);
+    const name = String(json?.name ?? "Unnamed filer");
     const recent = json?.filings?.recent;
     const forms: string[] = recent?.form ?? [];
     let best = -1;
@@ -45,37 +60,47 @@ export async function loadHolderBook(cikRaw: string): Promise<HolderBook> {
       if (forms[i] !== "13F-HR" && forms[i] !== "13F-HR/A") continue;
       if (best < 0 || recent.filingDate[i] > recent.filingDate[best] || (recent.filingDate[i] === recent.filingDate[best] && forms[i].endsWith("/A"))) best = i;
     }
-    if (best < 0) return { ...empty, name: known?.name || String(json?.name ?? ""), error: "No 13F on file." };
+    if (best < 0) return { ...empty, name, error: "No 13F on file." };
     const acc = String(recent.accessionNumber[best]);
     const folder = acc.replace(/-/g, "");
     const bare = String(Number(cik));
-    const index = await getJson(`https://www.sec.gov/Archives/edgar/data/${bare}/${folder}/index.json`);
-    const items = (index?.directory?.item ?? []) as { name?: string; size?: string }[];
-    const xmls = items
-      .filter((item) => item.name?.toLowerCase().endsWith(".xml") && !item.name.toLowerCase().includes("primary"))
-      .sort((a, b) => Number(b.size ?? 0) - Number(a.size ?? 0));
-    let holdings: HolderBook["holdings"] = [];
-    for (const item of xmls.slice(0, 4)) {
-      const xml = await getText(`https://www.sec.gov/Archives/edgar/data/${bare}/${folder}/${item.name}`);
-      if (!/infoTable|nameOfIssuer/i.test(xml)) continue;
-      holdings = parseInfoTable(xml);
-      if (holdings.length) break;
-    }
+    const page = `https://www.sec.gov/Archives/edgar/data/${bare}/${folder}/${acc}-index.html`;
+    const filed = String(recent.filingDate[best] ?? "");
+    const period = String(recent.reportDate?.[best] ?? "");
+    let holdings = parseInfoTable(await getText(`https://www.sec.gov/Archives/edgar/data/${bare}/${folder}/${acc}.txt`));
+    if (!holdings.length) holdings = await holdingsFromIndex(bare, folder);
     const value = holdings.reduce((sum, row) => sum + row.value, 0);
-    return {
+    const book: HolderBook = {
       cik,
-      name: known?.name || String(json?.name ?? "Unnamed filer"),
-      filed: String(recent.filingDate[best] ?? ""),
-      period: String(recent.reportDate?.[best] ?? ""),
-      url: `https://www.sec.gov/Archives/edgar/data/${bare}/${folder}/${acc}-index.html`,
+      name,
+      filed,
+      period,
+      url: page,
       value,
       count: holdings.length,
       holdings: holdings.slice(0, 80),
       error: holdings.length ? null : "Filing found, but the holdings table did not parse.",
     };
+    if (!book.error) bookCache.set(cik, { at: Date.now(), data: book });
+    return book;
   } catch (error) {
     return { ...empty, error: error instanceof Error ? error.message : "Filing lookup failed." };
   }
+}
+
+async function holdingsFromIndex(bare: string, folder: string): Promise<HolderBook["holdings"]> {
+  const index = await getJson(`https://www.sec.gov/Archives/edgar/data/${bare}/${folder}/index.json`);
+  const items = (index?.directory?.item ?? []) as { name?: string; size?: string }[];
+  const xmls = items
+    .filter((item) => item.name?.toLowerCase().endsWith(".xml") && !item.name.toLowerCase().includes("primary"))
+    .sort((a, b) => Number(b.size ?? 0) - Number(a.size ?? 0));
+  for (const item of xmls.slice(0, 3)) {
+    const xml = await getText(`https://www.sec.gov/Archives/edgar/data/${bare}/${folder}/${item.name}`);
+    if (!/infoTable|nameOfIssuer/i.test(xml)) continue;
+    const holdings = parseInfoTable(xml);
+    if (holdings.length) return holdings;
+  }
+  return [];
 }
 
 function filterDirectory(data: Directory, query: string): HolderSearch {
@@ -326,7 +351,26 @@ async function getJson(url: string): Promise<any> {
 }
 
 async function getText(url: string): Promise<string> {
-  const response = await fetch(url, { headers: { "User-Agent": UA, Accept: "*/*" }, signal: AbortSignal.timeout(20000) });
-  if (!response.ok) throw new Error(`${response.status} ${url}`);
-  return response.text();
+  const run = secChain.then(() => readSec(url));
+  secChain = run.then(() => undefined, () => undefined);
+  return run;
+}
+
+async function readSec(url: string): Promise<string> {
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const wait = Math.max(0, 300 - (Date.now() - secLast));
+    if (wait) await new Promise((resolve) => setTimeout(resolve, wait));
+    secLast = Date.now();
+    const response = await fetch(url, {
+      headers: { "User-Agent": UA, Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8" },
+      signal: AbortSignal.timeout(25000),
+    });
+    if (response.status === 429 || response.status === 503) {
+      await new Promise((resolve) => setTimeout(resolve, 1000 * (attempt + 1)));
+      continue;
+    }
+    if (!response.ok) throw new Error(`${response.status} ${url}`);
+    return response.text();
+  }
+  throw new Error(`The SEC is busy. Try again in a minute.`);
 }
