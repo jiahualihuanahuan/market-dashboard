@@ -12,7 +12,7 @@ export type FredEntry = {
   obs: Obs[];
 };
 
-export const FRED_TTL_MS = 30 * 60 * 1000;
+export const FRED_TTL_MS = 12 * 60 * 60 * 1000;
 export const FRED_FULL_MS = 7 * 24 * 60 * 60 * 1000;
 /** Re-read this many days before the last stored point on an incremental update, to pick up revisions. */
 export const FRED_OVERLAP_DAYS = 400;
@@ -39,13 +39,13 @@ export function covers(entry: FredEntry | null | undefined, start: string): bool
 export type FredPlan = { kind: "hit" } | { kind: "full"; from: string } | { kind: "tail"; from: string; cosd: string };
 
 /** Decide whether to serve the cache, re-download the full history, or fetch only the recent tail. */
-export function planFred(entry: FredEntry | null | undefined, start: string, now: number, fresh = false): FredPlan {
+export function planFred(entry: FredEntry | null | undefined, start: string, now: number, fresh = false, ttlMs = FRED_TTL_MS): FredPlan {
   if (!entry || !covers(entry, start) || !entry.obs.length) {
     // Widen to the earliest start anyone asked for, so one copy serves every caller.
     const from = !entry || start === "" || entry.from === "" ? (entry && entry.from === "" ? "" : start) : entry.from < start ? entry.from : start;
     return { kind: "full", from };
   }
-  if (!fresh && now - entry.checkedAt < FRED_TTL_MS) return { kind: "hit" };
+  if (!fresh && now - entry.checkedAt < ttlMs) return { kind: "hit" };
   if (now - entry.fullAt >= FRED_FULL_MS) return { kind: "full", from: entry.from };
   const last = entry.obs[entry.obs.length - 1].date;
   let cosd = shiftDays(last, -FRED_OVERLAP_DAYS);

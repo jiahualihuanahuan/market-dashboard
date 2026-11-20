@@ -39,7 +39,8 @@ function csvUrl(id: string, cosd: string): string {
 /** Observations for `id` from `start` (YYYY-MM-DD, or "" for the full history). */
 export async function fredObs(id: string, start = "", options: { fresh?: boolean; timeoutMs?: number } = {}): Promise<Obs[]> {
   const all = entries();
-  const plan = planFred(all[id], start, Date.now(), options.fresh === true);
+  const ttl = Number(process.env["FRED_REFRESH_HOURS"]);
+  const plan = planFred(all[id], start, Date.now(), options.fresh === true, Number.isFinite(ttl) && ttl >= 0.5 ? ttl * 3_600_000 : undefined);
   if (plan.kind === "hit") return sliceFrom(all[id].obs, start);
   const key = `${id}|${plan.kind}|${plan.kind === "tail" ? plan.cosd : plan.from}`;
   return singleFlight(key, async () => {

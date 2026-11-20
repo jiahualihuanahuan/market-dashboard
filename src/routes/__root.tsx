@@ -13,7 +13,7 @@ export const Route = createRootRoute({
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
       { title: APP_NAME },
-      { name: "description", content: "Closes for global markets, the yield curve, commodities, and the rules you actually trade." },
+      { name: "description", content: "One screen of the market signals that matter: trend, credit, volatility, relative strength, income ETFs." },
       { name: "theme-color", content: "#0c0e11" },
     ],
     links: [

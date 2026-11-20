@@ -1,11 +1,15 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { Desk } from "@/components/dashboard/desk";
-import { isTab } from "@/lib/market/tabs";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { DeskPage } from "@/components/desk/desk-page";
 
 export const Route = createFileRoute("/")({
   validateSearch: (search: Record<string, unknown>) => ({
-    tab: isTab(search.tab) ? search.tab : "overview",
-    symbol: typeof search.symbol === "string" ? search.symbol : "",
+    tab: search.tab === "income" ? ("income" as const) : ("desk" as const),
   }),
-  component: Desk,
+  component: Home,
 });
+
+function Home() {
+  const { tab } = Route.useSearch();
+  const navigate = useNavigate({ from: "/" });
+  return <DeskPage tab={tab} onTab={(next) => navigate({ search: { tab: next } })} />;
+}
