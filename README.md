@@ -39,6 +39,6 @@ docker compose up -d --build
 
 页面永远先用缓存回答（内存 → `/data/cache` 磁盘卷），需要时在后台刷新，所以打开页面不用等网络。每天 06:30（多伦多时间）和容器启动时强制刷新一次。
 
-ETF 穿透（Lookthru）已拆成独立应用：[lookthrough](https://github.com/jiahualihuanahuan/lookthrough/tree/standalone-app)（`standalone-app` 分支，端口 8095）。
+ETF 穿透（Lookthru）已拆成独立应用：[lookthrough](https://github.com/jiahualihuanahuan/lookthrough)。
 
 不是投资建议。
