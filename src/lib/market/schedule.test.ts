@@ -15,7 +15,7 @@ test("schedule: env overrides, market hours, one pass after the close", () => {
   const close = lastCloseAt(night);
   assert.equal(new Date(close).toISOString().slice(0, 16), "2026-11-19T21:15");
   assert.equal(priceDue(close - 1, night, schedule({})), true);
-  assert.equal(priceDue(close + 1, night, schedule({})), false);
+  assert.equal(priceDue(close + 1, night, schedule({ OFFHOURS_REFRESH_MIN: "0" })), false);
   assert.equal(barsDue(close - 1, night, schedule({})), true);
 });
 
@@ -25,6 +25,18 @@ test("schedule: hourly on weekends, configurable, off with 0", () => {
   assert.equal(priceDue(sat - 61 * 60_000, sat, schedule({})), true);
   assert.equal(priceDue(sat - 20 * 60_000, sat, schedule({ WEEKEND_REFRESH_MIN: "15" })), true);
   assert.equal(priceDue(sat - 5 * 3_600_000, sat, schedule({ WEEKEND_REFRESH_MIN: "0" })), false);
-  const night = Date.parse("2026-11-20T03:00:00Z"); // Thu 22:00 ET: still once after the close
-  assert.equal(priceDue(night - 2 * 3_600_000, night, schedule({})), false);
+});
+
+test("schedule: hourly on weeknights outside US hours, configurable, off with 0", () => {
+  const night = Date.parse("2026-11-20T03:00:00Z"); // Thu 22:00 ET, close was 16:15
+  assert.equal(priceDue(night - 30 * 60_000, night, schedule({})), false);
+  assert.equal(priceDue(night - 61 * 60_000, night, schedule({})), true);
+  assert.equal(priceDue(night - 20 * 60_000, night, schedule({ OFFHOURS_REFRESH_MIN: "15" })), true);
+  assert.equal(priceDue(night - 4 * 3_600_000, night, schedule({ OFFHOURS_REFRESH_MIN: "0" })), false);
+  const early = Date.parse("2026-11-19T12:00:00Z"); // Thu 07:00 ET, before the open
+  assert.equal(priceDue(early - 61 * 60_000, early, schedule({})), true);
+  // Weekend setting does not leak into weeknights, and vice versa.
+  assert.equal(priceDue(night - 61 * 60_000, night, schedule({ WEEKEND_REFRESH_MIN: "0" })), true);
+  const open = Date.parse("2026-11-19T15:00:00Z"); // market hours keep 15 min
+  assert.equal(priceDue(open - 16 * 60_000, open, schedule({ OFFHOURS_REFRESH_MIN: "0" })), true);
 });

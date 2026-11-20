@@ -4,6 +4,8 @@ export type Schedule = {
   priceMs: number;
   /** Board refresh on Saturdays and Sundays (ET) so crypto and futures keep moving, minutes (WEEKEND_REFRESH_MIN, default 60; 0 = off). */
   weekendMs: number;
+  /** Board refresh on weeknights outside US hours (futures, crypto, overseas markets), minutes (OFFHOURS_REFRESH_MIN, default 60; 0 = off). */
+  offhoursMs: number;
   /** Daily bars + distributions tail refresh, hours (BARS_REFRESH_HOURS, default 24; also refreshed once after each close). */
   barsMs: number;
   /** Full 5-year re-download to pick up splits/corrections, days (BARS_FULL_DAYS, default 7). */
@@ -21,6 +23,7 @@ export function schedule(env: Record<string, string | undefined> = typeof proces
   return {
     priceMs: num(env, "PRICE_REFRESH_MIN", 15, 1) * 60_000,
     weekendMs: num(env, "WEEKEND_REFRESH_MIN", 60, 0) * 60_000,
+    offhoursMs: num(env, "OFFHOURS_REFRESH_MIN", 60, 0) * 60_000,
     barsMs: num(env, "BARS_REFRESH_HOURS", 24, 1) * 3_600_000,
     fullMs: num(env, "BARS_FULL_DAYS", 7, 1) * 86_400_000,
     fredMs: num(env, "FRED_REFRESH_HOURS", 12, 0.5) * 3_600_000,
@@ -61,11 +64,15 @@ export function usWeekend(now: number): boolean {
   return day === "Sat" || day === "Sun";
 }
 
-/** Live prices are due every `priceMs` while open, every `weekendMs` on weekends, and once after each close otherwise. */
+/**
+ * Live prices are due every `priceMs` while open; always once after each close; then every `weekendMs` on weekends
+ * and every `offhoursMs` on weeknights outside US hours (0 turns either off).
+ */
 export function priceDue(liveAt: number, now: number, s: Schedule): boolean {
   if (usMarketOpen(now)) return now - liveAt >= s.priceMs;
   if (liveAt < lastCloseAt(now)) return true;
-  return s.weekendMs > 0 && usWeekend(now) && now - liveAt >= s.weekendMs;
+  const every = usWeekend(now) ? s.weekendMs : s.offhoursMs;
+  return every > 0 && now - liveAt >= every;
 }
 
 /** Bars/distributions are due daily, and once after each close (so EOD bars and new ex-dates land). */
