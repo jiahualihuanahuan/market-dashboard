@@ -20,20 +20,30 @@ function authorized(request: Request): boolean {
 }
 
 async function warm(): Promise<Response> {
-  const { loadDesk } = await import("@/lib/desk/desk.server");
+  const { loadBoard, loadSmartMoney } = await import("@/lib/market/live.server");
   const started = Date.now();
-  try {
-    const desk = await loadDesk(true);
-    return Response.json(
-      { ok: true, ms: Date.now() - started, desk: "warm", missing: desk.missing, time: new Date().toISOString() },
-      { headers: { "cache-control": "no-store" } },
-    );
-  } catch (error) {
-    return Response.json(
-      { ok: false, ms: Date.now() - started, desk: error instanceof Error ? error.message : "failed", time: new Date().toISOString() },
-      { status: 502, headers: { "cache-control": "no-store" } },
-    );
-  }
+  const [board, smart] = await Promise.allSettled([loadBoard(true), loadSmartMoney(true)]);
+  const boardError = board.status === "rejected"
+    ? board.reason instanceof Error
+      ? board.reason.message
+      : "failed"
+    : null;
+  const smartError = smart.status === "rejected"
+    ? smart.reason instanceof Error
+      ? smart.reason.message
+      : "failed"
+    : null;
+  const ok = board.status === "fulfilled";
+  return Response.json(
+    {
+      ok,
+      ms: Date.now() - started,
+      board: boardError ? boardError : "warm",
+      smart: smartError ? smartError : "warm",
+      time: new Date().toISOString(),
+    },
+    { status: ok ? 200 : 502, headers: { "cache-control": "no-store" } },
+  );
 }
 
 const handle = ({ request }: { request: Request }) => {
