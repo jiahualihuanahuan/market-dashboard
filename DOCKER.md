@@ -28,22 +28,24 @@ docker compose down        # 停掉，数据卷还在
 docker compose down -v     # 停掉并删掉日志和自动生成的令牌
 ```
 
-可选配置见 [docker/env.example](docker/env.example)。想改时区、刷新频率或收益 ETF 列表，在项目目录建一个 `.env`：
+可选配置见 [docker/env.example](docker/env.example)。想改时区或每天几点刷新，在项目目录建一个 `.env`：
 
 ```bash
 TZ=America/Toronto
 CARE_AT=06:30
 HOST_PORT=8080
-PRICE_REFRESH_MIN=15
-INCOME_TICKERS=JEPQ,SPYI,QQQI,HYLD.TO
+OLLAMA_BASE=http://host.docker.internal:11434/v1
+CONVICTION_MODEL=qwen3:8b
 ```
+
+Conviction 页走的是宿主机上的 Ollama，不是容器里的 127.0.0.1。模型不在这台机器上时，把 `OLLAMA_BASE` 改成局域网地址，例如 `http://192.168.1.20:11434/v1`。
 
 ## 自动照顾
 
 - `restart: unless-stopped`：进程崩了会拉起。宿主机重启后，只要 Docker 自己会开机启动，这个容器也会起来。
   - Linux：`sudo systemctl enable --now docker`
 - 每 30 秒做一次健康检查（`/api/health`）。连续失败会重启容器里的服务。
-- 每天 `CARE_AT`（默认多伦多时间 06:30）会再检查一次，并强制刷新行情缓存（缓存在 `market-desk-data` 卷的 `/data/cache`，重建镜像也不会丢）。容器刚启动时也会刷新一次。记录在日志里，也在 `market-desk-logs` 卷的 `care.log`。
+- 每天 `CARE_AT`（默认多伦多时间 06:30）会再检查一次，并刷新行情缓存。容器刚启动时也会刷新一次。记录在日志里，也在 `market-desk-logs` 卷的 `care.log`。
 - Docker 自己的日志只保留 5 个 10MB 文件，不会把磁盘写满。
 
 行情刷新接口是 `/api/care`，必须带启动时的令牌。没自己设 `CARE_TOKEN` 时，令牌写在数据卷里：
