@@ -123,7 +123,7 @@ export function buildRows(series: Map<string, Obs[]>, cape: { value: number; dat
       id: "trend",
       group: "stress",
       label: "S&P 500 vs 200-day line",
-      value: vs200 == null ? "—" : `${vs200 >= 0 ? "above" : "below"} ${(vs200 * 100).toFixed(1)}%`,
+      value: vs200 == null ? "—" : `${vs200 >= 0 ? "above" : "below"} ${Math.abs(vs200 * 100).toFixed(1)}%`,
       asOf: null,
       tone: vs200 == null ? "unknown" : vs200 < -0.03 ? "alarm" : vs200 < 0 ? "caution" : "calm",
       threshold: "Above = bull side · just below = testing the line · more than 3% below = broken.",
