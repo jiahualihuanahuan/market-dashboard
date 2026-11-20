@@ -2,6 +2,8 @@
 export type Schedule = {
   /** Live price patch during US regular hours, minutes (PRICE_REFRESH_MIN, default 15). */
   priceMs: number;
+  /** Board refresh on Saturdays and Sundays (ET) so crypto and futures keep moving, minutes (WEEKEND_REFRESH_MIN, default 60; 0 = off). */
+  weekendMs: number;
   /** Daily bars + distributions tail refresh, hours (BARS_REFRESH_HOURS, default 24; also refreshed once after each close). */
   barsMs: number;
   /** Full 5-year re-download to pick up splits/corrections, days (BARS_FULL_DAYS, default 7). */
@@ -18,6 +20,7 @@ function num(env: Record<string, string | undefined>, key: string, fallback: num
 export function schedule(env: Record<string, string | undefined> = typeof process === "undefined" ? {} : process.env): Schedule {
   return {
     priceMs: num(env, "PRICE_REFRESH_MIN", 15, 1) * 60_000,
+    weekendMs: num(env, "WEEKEND_REFRESH_MIN", 60, 0) * 60_000,
     barsMs: num(env, "BARS_REFRESH_HOURS", 24, 1) * 3_600_000,
     fullMs: num(env, "BARS_FULL_DAYS", 7, 1) * 86_400_000,
     fredMs: num(env, "FRED_REFRESH_HOURS", 12, 0.5) * 3_600_000,
@@ -52,10 +55,17 @@ export function lastCloseAt(now: number): number {
   return now - 86_400_000;
 }
 
-/** Live prices are due every `priceMs` while open; once after each close otherwise. */
+/** True on Saturday or Sunday in New York. */
+export function usWeekend(now: number): boolean {
+  const day = ET.formatToParts(new Date(now)).find((p) => p.type === "weekday")?.value;
+  return day === "Sat" || day === "Sun";
+}
+
+/** Live prices are due every `priceMs` while open, every `weekendMs` on weekends, and once after each close otherwise. */
 export function priceDue(liveAt: number, now: number, s: Schedule): boolean {
   if (usMarketOpen(now)) return now - liveAt >= s.priceMs;
-  return liveAt < lastCloseAt(now);
+  if (liveAt < lastCloseAt(now)) return true;
+  return s.weekendMs > 0 && usWeekend(now) && now - liveAt >= s.weekendMs;
 }
 
 /** Bars/distributions are due daily, and once after each close (so EOD bars and new ex-dates land). */

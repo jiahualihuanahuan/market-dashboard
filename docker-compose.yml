@@ -32,6 +32,7 @@ services:
       # Refresh cadence. Prices every PRICE_REFRESH_MIN in US hours and once after the close; FRED every FRED_REFRESH_HOURS.
       PRICE_REFRESH_MIN: ${PRICE_REFRESH_MIN:-15}
       FRED_REFRESH_HOURS: ${FRED_REFRESH_HOURS:-12}
+      WEEKEND_REFRESH_MIN: ${WEEKEND_REFRESH_MIN:-60}
     volumes:
       - market-desk-data:/data
       - market-desk-logs:/var/log/marketdesk
