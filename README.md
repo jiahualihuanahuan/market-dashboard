@@ -24,7 +24,7 @@ docker compose logs -f
 docker compose down
 ```
 
-五个标签：**Markets**（概览、热力图、板块、商品）、**Risk**（恐慌、稳定性、收益率曲线和美联储、宏观）、**Money flow**（内部人、13F、ETF 资金流、暗池、期权）、**Portfolio**（Lookthru、有效前沿、估值）、**Settings**。每个标签里第一块默认展开，其他点开才加载；每个指标只在一个地方出现。
+五个标签：**Markets**（概览、热力图、板块、商品）、**Risk**（恐慌、稳定性、收益率曲线和美联储、宏观）、**Money flow**（内部人、13F、ETF 资金流、暗池、期权）、**Portfolio**（Lookthru、收益型 ETF、有效前沿、估值）、**Settings**。每个标签里第一块默认展开，其他点开才加载；每个指标只在一个地方出现。
 
 页面总是先用缓存回答，再在后台刷新：美股开盘时价格每 15 分钟（`PRICE_REFRESH_MIN`），收盘后补一次；周末每小时一次（`WEEKEND_REFRESH_MIN`）；FRED 每 12 小时（`FRED_REFRESH_HOURS`）。缓存在 `market-desk-data` 卷里，重建镜像也不丢。
 

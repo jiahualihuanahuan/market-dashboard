@@ -195,3 +195,10 @@ export const getHolderBook = createServerFn({ method: "GET" })
     const { loadHolderBook } = await import("./holders.server");
     return loadHolderBook(data.cik);
   });
+
+export const getIncome = createServerFn({ method: "GET" })
+  .validator(freshFlag)
+  .handler(async ({ data }) => {
+    const { loadIncome } = await import("./income.server");
+    return loadIncome(data.fresh);
+  });

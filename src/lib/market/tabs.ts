@@ -6,7 +6,7 @@ export const SECTIONS = {
   markets: ["overview", "heatmap", "sectors", "commodities"],
   risk: ["panic", "stability", "yields", "macro"],
   money: ["insiders", "smart", "flows", "dark", "options"],
-  portfolio: ["lookthru", "frontier", "valuation"],
+  portfolio: ["lookthru", "income", "frontier", "valuation"],
   settings: ["settings"],
 } as const satisfies Record<TabId, readonly string[]>;
 

@@ -11,6 +11,7 @@ import {
   LayoutGrid,
   LineChart,
   PieChart,
+  HandCoins,
   Scale,
   ShieldAlert,
   Siren,
@@ -33,6 +34,7 @@ import { HeatmapTab } from "@/components/dashboard/heatmap";
 import { ValuationTab } from "@/components/dashboard/valuation";
 import { StabilityTab } from "@/components/dashboard/stability";
 import { FrontierTab } from "@/components/dashboard/frontier";
+import { IncomeTab } from "@/components/dashboard/income";
 import { FlowsTab } from "@/components/dashboard/flows";
 import { OptionsTab } from "@/components/dashboard/options";
 import { DarkTab } from "@/components/dashboard/dark";
@@ -66,6 +68,7 @@ const SECTION_INFO: Record<SectionId, { label: string; icon: typeof LayoutDashbo
   dark: { label: "Dark pool", icon: EyeOff },
   options: { label: "Options", icon: Sigma },
   lookthru: { label: "Lookthru", icon: Waypoints },
+  income: { label: "Income ETFs", icon: HandCoins },
   frontier: { label: "Frontier", icon: Spline },
   valuation: { label: "Valuation", icon: Scale },
   settings: { label: "Zones and thresholds", icon: Settings },
@@ -112,6 +115,7 @@ export function Desk() {
       case "heatmap": return <HeatmapTab />;
       case "valuation": return <ValuationTab />;
       case "stability": return <StabilityTab />;
+      case "income": return <IncomeTab />;
       case "frontier": return <FrontierTab />;
       case "flows": return <FlowsTab />;
       case "options": return <OptionsTab />;
