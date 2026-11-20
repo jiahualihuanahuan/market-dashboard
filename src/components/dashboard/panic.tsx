@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import type { Board } from "@/lib/market/types";
 import { getPanic } from "@/lib/market/board.functions";
-import { breadthPanic, drawdownPanic, fearPanic, panicWords, percentile, vixPanic } from "@/lib/market/panic";
+import { breadthPanic, drawdownPanic, panicWords, percentile, vixPanic } from "@/lib/market/panic";
 import { RANGES, sliceSeries, type RangeId } from "@/lib/market/tape";
 import { Panel, tooltipStyle } from "@/components/dashboard/bits";
 import { cn } from "@/lib/utils";
@@ -36,7 +36,6 @@ export function Panic({ board }: { board: Board }) {
   const book = board.breadth.source === "spx" ? "S&P 500" : "tracked book";
   const downPct = board.breadth.universe ? (board.breadth.down / board.breadth.universe) * 100 : null;
   const hy = board.hyOas;
-  const cnn = board.fearCnn?.score ?? null;
   const hySample = (board.stress.find((row) => row.id === "hy")?.points ?? []).map((point) => point.v).filter((value) => value > 0);
   const legs = [
     {
@@ -59,13 +58,6 @@ export function Panic({ board }: { board: Board }) {
       score: hy == null || hySample.length < 20 ? null : Math.round(percentile(hy, hySample)),
       value: hy == null ? "—" : `${hy.toFixed(2)} pts`,
       plain: "High-yield OAS is the extra interest lenders demand to hold risky company bonds instead of Treasuries. A wide gap means lenders are scared, not just stock traders. The score is how unusual today's gap is against the history on this page.",
-    },
-    {
-      id: "fear",
-      label: "CNN fear reading",
-      score: cnn == null ? null : Math.round(fearPanic(cnn)),
-      value: cnn == null ? "—" : `${Math.round(cnn)} ${board.fearCnn?.rating ?? ""}`.trim(),
-      plain: "CNN blends several of these clues into one 0–100 mood number. Low is fear. It is not a separate fact, so it should not be counted as a new vote. It is here so you can see the published mood next to the pieces.",
     },
     {
       id: "drop",
@@ -103,7 +95,7 @@ export function Panic({ board }: { board: Board }) {
         </div>
       </Panel>
 
-      <Panel title="The pieces" kicker="Higher means more panic. CNN is shown, not averaged in.">
+      <Panel title="The pieces" kicker="Higher means more panic. CNN Fear and Greed is on Markets → Overview.">
         <ul className="grid gap-4">
           {legs.map((leg) => (
             <li key={leg.id}>

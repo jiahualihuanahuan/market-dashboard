@@ -40,7 +40,8 @@ export function StabilityTab() {
 
   const book = query.data;
   const valuation = book.rows.filter((row) => row.group === "valuation");
-  const stress = book.rows.filter((row) => row.group === "stress");
+  // VIX and the junk spread are shown in Panic, the curve spreads in Yield curve (same Risk tab); they still count here.
+  const stress = book.rows.filter((row) => row.group === "stress" && !SHOWN_ELSEWHERE.has(row.id));
 
   return (
     <div className="grid min-w-0 gap-4">
@@ -69,6 +70,8 @@ export function StabilityTab() {
     </div>
   );
 }
+
+const SHOWN_ELSEWHERE = new Set(["vix", "hy", "curve", "curve3m"]);
 
 function Rows({ rows }: { rows: StabilityRow[] }) {
   return (

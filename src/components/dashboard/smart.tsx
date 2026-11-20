@@ -226,12 +226,10 @@ function Famous() {
       </Panel>
     );
   }
-  const data = query.data;
-
   return (
     <div className="grid gap-4">
       <p className="text-sm text-muted">
-        A 13F is the quarterly list of US stocks a large manager must file with the SEC, usually about 45 days after the quarter ends. It is late, and it misses bets against stocks and most foreign holdings. Insider buys and sells (Form 4s) are in the Insiders section of this tab.
+        A 13F is the quarterly list of US stocks a large manager must file with the SEC, usually about 45 days after the quarter ends. It is late, and it misses bets against stocks and most foreign holdings. Insider buys and sells (Form 4s) are in the Insiders section of this tab. {query.data.note}
       </p>
       <div className="flex justify-end">
         <Button

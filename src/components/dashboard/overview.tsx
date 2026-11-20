@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Bar, BarChart, CartesianGrid, Cell, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import type { Board, CnnFear, Quote } from "@/lib/market/types";
-import { fmtBp, fmtCompact, fmtPrice } from "@/lib/market/format";
+import { fmtCompact, fmtPrice } from "@/lib/market/format";
 import { Empty, Gauge, Panel, Tone, tooltipStyle } from "@/components/dashboard/bits";
 import { getTape } from "@/lib/market/board.functions";
 import { RANGES, sliceSeries, type RangeId, type Tape } from "@/lib/market/tape";
@@ -144,11 +144,6 @@ export function Overview({ board }: { board: Board }) {
 
       <Panel title="Liquidity" kicker="How easy it is to borrow, and how scared lenders are">
           <dl className="grid gap-3 sm:grid-cols-2">
-            <Stat label="10-year minus 2-year" value={board.t10y2y == null ? "—" : fmtBp(board.t10y2y)} hint="Longer Treasury loans minus shorter ones. Negative means the curve is upside down." />
-            <Stat label="10-year minus 3-month" value={board.t10y3m == null ? "—" : fmtBp(board.t10y3m)} hint="Same idea, using the 3-month bill. Also a recession warning when negative." />
-            <Stat label="Junk-bond extra yield" value={board.hyOas == null ? "—" : `${(board.hyOas * 100).toFixed(0)} bp`} hint="How much extra yield investors demand to lend to shaky companies. Wider means more fear." />
-            <Stat label="10-year after inflation" value={board.real10 == null ? "—" : `${board.real10.toFixed(2)}%`} hint="The real yield. Higher means future profits are worth less in today’s money." />
-            <Stat label="TED spread" value={board.ted ? `${board.ted.value.toFixed(2)} (${board.ted.date})` : "—"} hint="An old gap between bank borrowing and Treasury bills. It stopped updating in 2022." />
             <Stat label="10-year yield bounce" value={board.yieldVol == null ? "—" : `${board.yieldVol} bp`} hint="How much the 10-year yield has actually been jumping around. Not the MOVE index, which we do not have." />
             <Stat label="SPY shares traded" value={fmtCompact(spy?.volume ?? null)} hint="SPY is the fund that tracks the S&P 500. This is yesterday’s share count." />
             <Stat label="SPY usual volume" value={fmtCompact(spy?.avgVol20 ?? null)} hint="The average of the last 20 sessions, so you can see if yesterday was busy." />
