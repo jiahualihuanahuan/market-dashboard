@@ -1,4 +1,5 @@
 import { readCache, writeCache } from "./store.server.ts";
+import { fredObs } from "./fred.server.ts";
 import { buildPanicHistory, type PanicPoint } from "./panic.ts";
 
 const UA = "Mozilla/5.0 (compatible; MarketDesk/1.0)";
@@ -37,14 +38,10 @@ async function vixHistory(): Promise<{ d: string; v: number }[]> {
 }
 
 async function hyHistory(): Promise<{ d: string; v: number }[]> {
-  const response = await fetch("https://fred.stlouisfed.org/graph/fredgraph.csv?id=BAMLH0A0HYM2&cosd=2016-01-01", { signal: AbortSignal.timeout(20000) });
-  if (!response.ok) return [];
-  const lines = (await response.text()).trim().split(/\r?\n/).slice(1);
-  const out: { d: string; v: number }[] = [];
-  for (const line of lines) {
-    const [date, raw] = line.split(",");
-    const value = Number(raw);
-    if (date && value > 0) out.push({ d: date, v: value });
+  try {
+    const obs = await fredObs("BAMLH0A0HYM2", "2016-01-01");
+    return obs.filter((row) => row.value > 0).map((row) => ({ d: row.date, v: row.value }));
+  } catch {
+    return [];
   }
-  return out;
 }

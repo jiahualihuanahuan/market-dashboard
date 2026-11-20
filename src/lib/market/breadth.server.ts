@@ -1,4 +1,6 @@
 import type { IndexBreadth } from "@/lib/market/types";
+import { readCache, writeCache } from "./store.server.ts";
+import { fetchTextRetry, serialQueue } from "./fetch-util.ts";
 
 const UA = "Mozilla/5.0 (compatible; MarketDesk/1.0; research)";
 
@@ -38,12 +40,22 @@ export async function membersOf(indexSymbol: string): Promise<{ label: string; s
 
 export async function loadIndexBreadth(): Promise<IndexBreadth[]> {
   const lists = await membership();
-  const rows = await mapPool(INDEXES, 3, async (spec) => {
+  // Members overlap (Dow and most of the Nasdaq-100 are in the S&P 500): fetch each symbol once.
+  const wanted = unique(INDEXES.flatMap((spec) => {
+    const symbols = lists.get(spec.symbol) ?? [];
+    return symbols.length < 10 ? [] : symbols;
+  }));
+  const all = await sparkChanges(wanted);
+  const rows = INDEXES.map((spec) => {
     const symbols = lists.get(spec.symbol) ?? [];
     if (symbols.length < 10) {
       return { symbol: spec.symbol, label: spec.label, up: 0, down: 0, flat: 0, covered: 0, listed: symbols.length };
     }
-    const changes = await sparkChanges(symbols);
+    const changes = new Map<string, number>();
+    for (const symbol of symbols) {
+      const pct = all.get(symbol.trim().toUpperCase());
+      if (pct !== undefined) changes.set(symbol, pct);
+    }
     let up = 0;
     let down = 0;
     let flat = 0;
@@ -57,20 +69,40 @@ export async function loadIndexBreadth(): Promise<IndexBreadth[]> {
   return rows;
 }
 
-async function membership(): Promise<Map<string, string[]>> {
-  const fresh = memberCache && Date.now() - memberCache.at < 12 * 60 * 60 * 1000;
+const MEMBER_MS = 12 * 60 * 60 * 1000;
+let memberFlight: Promise<Map<string, string[]>> | null = null;
+
+function membership(): Promise<Map<string, string[]>> {
+  if (!memberCache) {
+    // Index lists change a few times a year; keep them across restarts.
+    const saved = readCache<{ at: number; lists: Record<string, string[]> }>("index-members");
+    if (saved?.lists) memberCache = { at: saved.at, lists: new Map(Object.entries(saved.lists)) };
+  }
+  if (memberCache && Date.now() - memberCache.at < MEMBER_MS && INDEXES.every((spec) => (memberCache?.lists.get(spec.symbol)?.length ?? 0) >= 10)) {
+    return Promise.resolve(memberCache.lists);
+  }
+  memberFlight ??= refreshMembership().finally(() => {
+    memberFlight = null;
+  });
+  return memberFlight;
+}
+
+async function refreshMembership(): Promise<Map<string, string[]>> {
+  const fresh = memberCache && Date.now() - memberCache.at < MEMBER_MS;
   const lists = new Map(memberCache?.lists ?? []);
-  for (const spec of INDEXES) {
+  // Different hosts load in parallel; Wikipedia calls still go one at a time (see `wiki`).
+  await Promise.all(INDEXES.map(async (spec) => {
     const have = lists.get(spec.symbol);
-    if (fresh && have && have.length >= 10) continue;
+    if (fresh && have && have.length >= 10) return;
     try {
       const symbols = unique(await spec.load());
       if (symbols.length >= 10 || !have?.length) lists.set(spec.symbol, symbols);
     } catch {
       if (!lists.has(spec.symbol)) lists.set(spec.symbol, []);
     }
-  }
+  }));
   memberCache = { at: Date.now(), lists };
+  writeCache("index-members", { at: memberCache.at, lists: Object.fromEntries(lists) });
   return lists;
 }
 
@@ -97,9 +129,9 @@ async function loadFtse(): Promise<string[]> {
 }
 
 async function loadNikkei(): Promise<string[]> {
-  const json = await getJson(
+  const json = await wikiQueue(() => getJson(
     "https://en.wikipedia.org/w/api.php?action=parse&page=Nikkei%20225&prop=wikitext&format=json",
-  );
+  ));
   const text = String(json?.parse?.wikitext?.["*"] ?? "");
   const codes = unique([...text.matchAll(/\{\{tyo2\|([^}]+)\}\}/g)].map((match) => match[1].trim().toUpperCase()));
   const symbols = codes.filter((code) => /^[0-9]{3}[0-9A-Z]$/.test(code));
@@ -124,9 +156,9 @@ function tableWith(html: string, pattern: RegExp): string {
 }
 
 async function loadAsx(): Promise<string[]> {
-  const json = await getJson(
+  const json = await wikiQueue(() => getJson(
     "https://en.wikipedia.org/w/api.php?action=parse&page=S%26P%2FASX%20200&prop=wikitext&format=json",
-  );
+  ));
   const text = String(json?.parse?.wikitext?.["*"] ?? "");
   const codes = [...text.matchAll(/\|\s*([A-Z0-9]{3})\s*\|/g)].map((match) => match[1]);
   const symbols = unique(codes).filter((code) => code !== "ASX" && code !== "XJO");
@@ -168,9 +200,12 @@ async function sparkChanges(symbols: string[]): Promise<Map<string, number>> {
   for (let i = 0; i < symbols.length; i += 20) batches.push(symbols.slice(i, i + 20));
   await mapPool(batches, 5, async (batch) => {
     const url = `https://query1.finance.yahoo.com/v8/finance/spark?symbols=${encodeURIComponent(batch.join(","))}&range=5d&interval=1d`;
-    const response = await fetch(url, { headers: { "user-agent": UA }, signal: AbortSignal.timeout(15000) });
-    if (!response.ok) return;
-    const json = (await response.json()) as Record<string, { fulldayChangePercent?: number }>;
+    let json: Record<string, { fulldayChangePercent?: number }>;
+    try {
+      json = JSON.parse(await fetchTextRetry(url, { headers: { "user-agent": UA }, timeoutMs: 15000, retries: 1 }));
+    } catch {
+      return;
+    }
     for (const symbol of batch) {
       const pct = json[symbol]?.fulldayChangePercent;
       if (typeof pct === "number" && Number.isFinite(pct)) out.set(symbol, pct);
@@ -179,14 +214,12 @@ async function sparkChanges(symbols: string[]): Promise<Map<string, number>> {
   return out;
 }
 
-let lastWiki = 0;
+// One Wikipedia request at a time (Wikimedia API etiquette: serial, not parallel), even when index lists load in parallel.
+const wikiQueue = serialQueue(300);
 
 async function wiki(page: string): Promise<string> {
-  const wait = 1500 - (Date.now() - lastWiki);
-  if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
-  lastWiki = Date.now();
   const url = `https://en.wikipedia.org/w/api.php?action=parse&page=${encodeURIComponent(page)}&prop=text&format=json`;
-  const json = await getJson(url);
+  const json = await wikiQueue(() => getJson(url));
   const html = json?.parse?.text?.["*"];
   if (typeof html !== "string" || html.length < 1000) throw new Error(`No Wikipedia text for ${page}`);
   return html;

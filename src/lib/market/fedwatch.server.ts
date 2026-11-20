@@ -1,3 +1,4 @@
+import { fredObs } from "@/lib/market/fred.server";
 import { fedWatchMeetings, upcomingMeetings, type FedWatch, type Settlement } from "@/lib/market/fedwatch";
 
 const CME_URL = "https://www.cmegroup.com/CmeWS/mvc/Settlements/Futures/Settlements/305/FUT";
@@ -113,17 +114,11 @@ async function yahooCurve(): Promise<{ asOf: string; source: "yahoo-last"; rows:
 
 async function latestFred(id: string): Promise<{ date: string; value: number }> {
   const start = shift(nyToday(), -40);
-  const response = await fetch(`https://fred.stlouisfed.org/graph/fredgraph.csv?id=${id}&cosd=${start}`, {
-    headers: { "user-agent": "Mozilla/5.0 (compatible; MarketDesk/1.0)" },
-    signal: AbortSignal.timeout(15000),
+  const obs = await fredObs(id, start, { timeoutMs: 15000 }).catch(() => {
+    throw new Error(`${id} did not answer`);
   });
-  if (!response.ok) throw new Error(`${id} did not answer`);
-  const lines = (await response.text()).trim().split(/\r?\n/).slice(1);
-  for (let i = lines.length - 1; i >= 0; i -= 1) {
-    const [date, raw] = lines[i].split(",");
-    const value = Number(raw);
-    if (date && Number.isFinite(value)) return { date, value };
-  }
+  const last = obs.at(-1);
+  if (last) return { date: last.date, value: last.value };
   throw new Error(`${id} had no recent print`);
 }
 

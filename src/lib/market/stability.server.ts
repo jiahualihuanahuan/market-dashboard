@@ -1,3 +1,5 @@
+import { fredObs } from "./fred.server.ts";
+
 export type Tone = "calm" | "caution" | "alarm" | "unknown";
 
 export type StabilityRow = {
@@ -195,17 +197,7 @@ function ago(rows: Obs[] | undefined, sessions: number): Obs | null {
 }
 
 async function fredSeries(id: string): Promise<Obs[]> {
-  const url = `https://fred.stlouisfed.org/graph/fredgraph.csv?id=${id}`;
-  const response = await fetch(url, { signal: AbortSignal.timeout(15000) });
-  if (!response.ok) throw new Error(`${id} did not load`);
-  const text = await response.text();
-  const rows: Obs[] = [];
-  for (const line of text.split("\n").slice(1)) {
-    const [date, raw] = line.trim().split(",");
-    const value = Number(raw);
-    if (date && Number.isFinite(value)) rows.push({ date, value });
-  }
-  return rows;
+  return fredObs(id, "", { timeoutMs: 15000 });
 }
 
 async function shillerCape(): Promise<{ value: number; date: string } | null> {

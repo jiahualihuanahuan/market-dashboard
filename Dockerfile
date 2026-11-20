@@ -35,7 +35,8 @@ ENV NODE_ENV=production \
     NITRO_HOST=0.0.0.0 \
     TZ=America/Toronto \
     CARE_AT=06:30 \
-    CARE_LOG=/var/log/marketdesk/care.log
+    CARE_LOG=/var/log/marketdesk/care.log \
+    MARKET_CACHE_DIR=/data/cache
 
 RUN apt-get update \
   && apt-get install -y --no-install-recommends ca-certificates curl unzip \

@@ -1,4 +1,5 @@
 import https from "node:https";
+import { fredLast } from "@/lib/market/fred.server";
 import { buildFrontier, type FrontierAnchor, type FrontierModel } from "@/lib/market/frontier";
 
 const UA = "Mozilla/5.0 (compatible; MarketDesk/1.0)";
@@ -242,14 +243,7 @@ async function loadGold(): Promise<number> {
 }
 
 async function lastFred(id: string): Promise<number | null> {
-  const response = await fetch(`https://fred.stlouisfed.org/graph/fredgraph.csv?id=${id}`, { signal: AbortSignal.timeout(15000) });
-  if (!response.ok) return null;
-  const lines = (await response.text()).trim().split(/\r?\n/);
-  for (let index = lines.length - 1; index >= 1; index -= 1) {
-    const value = Number(lines[index]?.split(",")[1]);
-    if (Number.isFinite(value)) return value;
-  }
-  return null;
+  return fredLast(id);
 }
 
 function sumCaps(symbols: string[], book: Map<string, number>): { total: number; hit: number } {

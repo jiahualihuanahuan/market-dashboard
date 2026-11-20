@@ -1,7 +1,9 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
-const dir = path.join(process.cwd(), "data", "cache");
+// In Docker this points at the market-desk-data volume (/data/cache) so the cache survives restarts and
+// rebuilds; /app is root-owned there, so the old ./data/cache default could never be written.
+const dir = process.env["MARKET_CACHE_DIR"] || path.join(process.cwd(), "data", "cache");
 const memory = new Map<string, unknown>();
 const timers = new Map<string, ReturnType<typeof setTimeout>>();
 

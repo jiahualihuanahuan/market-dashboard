@@ -2,6 +2,7 @@ import { equityGauge } from "@/lib/market/rules";
 import { latestPrint, preferPrint, type MarketPrint } from "@/lib/market/prints";
 import { latestPrices } from "@/lib/market/prices.server";
 import { readCache, writeCache } from "@/lib/market/store.server";
+import { fredObs } from "@/lib/market/fred.server";
 import { fearLabel } from "@/lib/market/format";
 import { spotFor, UNIVERSE, UNIVERSE_BY_SYMBOL } from "@/lib/market/universe";
 import type {
@@ -61,16 +62,40 @@ const MANAGERS = [
   { name: "Duquesne Family Office", who: "Druckenmiller", cik: "0001536411", token: "DUQUESNE" },
 ];
 
+/** How old a board may be and still be served instantly while a fresh one is built in the background. */
+const BOARD_STALE_MS = 15 * 60 * 1000;
+let boardHydrated = false;
+
 export function loadBoard(fresh: boolean, _live = true): Promise<Board> {
-  if (!fresh && boardCache?.data.live && priceCacheFresh(boardCache.at) && boardReady(boardCache.data)) {
-    return Promise.resolve(boardCache.data);
+  hydrateBoard();
+  if (!fresh && boardCache?.data.live && boardReady(boardCache.data)) {
+    if (priceCacheFresh(boardCache.at)) return Promise.resolve(boardCache.data);
+    // Stale-while-revalidate: answer now with the last board, refresh behind it. The client polls every
+    // 60 s, so the next poll picks up the rebuilt board.
+    if (Date.now() - boardCache.at < BOARD_STALE_MS) {
+      startBoardRebuild(false).catch(() => undefined);
+      return Promise.resolve(boardCache.data);
+    }
   }
+  return startBoardRebuild(fresh);
+}
+
+function startBoardRebuild(fresh: boolean): Promise<Board> {
   if (boardFlight) return boardFlight;
   const flight = rebuildBoard(fresh).finally(() => {
     if (boardFlight === flight) boardFlight = null;
   });
   boardFlight = flight;
   return flight;
+}
+
+/** After a restart, serve the last board saved to disk (if recent) instead of waiting for a full rebuild. */
+function hydrateBoard(): void {
+  if (boardHydrated) return;
+  boardHydrated = true;
+  if (boardCache) return;
+  const saved = readCache<Cache<Board>>("board");
+  if (saved?.data && typeof saved.at === "number") boardCache = saved;
 }
 
 function priceCacheFresh(at: number): boolean {
@@ -200,6 +225,7 @@ async function rebuildBoard(fresh: boolean): Promise<Board> {
     warnings,
   };
   boardCache = { at: Date.now(), data: board };
+  writeCache("board", boardCache);
   return board;
 }
 
@@ -909,17 +935,8 @@ function buildMacro(series: Map<string, Obs[]>, today: string): MacroPrint[] {
 }
 
 async function fredSeries(id: string, start: string): Promise<Obs[]> {
-  const url = `https://fred.stlouisfed.org/graph/fredgraph.csv?id=${id}&cosd=${start}`;
-  const text = await fetchText(url, YAHOO_UA, 20000);
-  const lines = text.trim().split(/\r?\n/);
-  const out: Obs[] = [];
-  for (let i = 1; i < lines.length; i += 1) {
-    const [date, raw] = lines[i].split(",");
-    if (!date || !raw || raw === ".") continue;
-    const value = Number(raw);
-    if (Number.isFinite(value)) out.push({ date, value });
-  }
-  return out;
+  // Shared, disk-backed, incremental FRED cache (see fred.server.ts).
+  return fredObs(id, start);
 }
 
 async function loadManager(manager: (typeof MANAGERS)[number]): Promise<ManagerBook> {
