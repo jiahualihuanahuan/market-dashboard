@@ -3,6 +3,7 @@ import { latestPrint, preferPrint, type MarketPrint } from "@/lib/market/prints"
 import { latestPrices } from "@/lib/market/prices.server";
 import { readCache, writeCache } from "@/lib/market/store.server";
 import { fredObs } from "@/lib/market/fred.server";
+import { priceDue, schedule } from "@/lib/market/schedule";
 import { fearLabel } from "@/lib/market/format";
 import { spotFor, UNIVERSE, UNIVERSE_BY_SYMBOL } from "@/lib/market/universe";
 import type {
@@ -62,16 +63,16 @@ const MANAGERS = [
   { name: "Duquesne Family Office", who: "Druckenmiller", cik: "0001536411", token: "DUQUESNE" },
 ];
 
-/** How old a board may be and still be served instantly while a fresh one is built in the background. */
-const BOARD_STALE_MS = 15 * 60 * 1000;
+/** A saved board older than this is not served while a new one builds (e.g. after a long shutdown). */
+const BOARD_STALE_MS = 3 * 24 * 60 * 60 * 1000;
 let boardHydrated = false;
 
 export function loadBoard(fresh: boolean, _live = true): Promise<Board> {
   hydrateBoard();
   if (!fresh && boardCache?.data.live && boardReady(boardCache.data)) {
-    if (priceCacheFresh(boardCache.at)) return Promise.resolve(boardCache.data);
-    // Stale-while-revalidate: answer now with the last board, refresh behind it. The client polls every
-    // 60 s, so the next poll picks up the rebuilt board.
+    // Refresh cadence (schedule.ts): every PRICE_REFRESH_MIN while the US market is open, once after each close.
+    if (!priceDue(boardCache.at, Date.now(), schedule())) return Promise.resolve(boardCache.data);
+    // Stale-while-revalidate: answer now with the last board and rebuild behind it; the next poll gets the new one.
     if (Date.now() - boardCache.at < BOARD_STALE_MS) {
       startBoardRebuild(false).catch(() => undefined);
       return Promise.resolve(boardCache.data);
@@ -96,10 +97,6 @@ function hydrateBoard(): void {
   if (boardCache) return;
   const saved = readCache<Cache<Board>>("board");
   if (saved?.data && typeof saved.at === "number") boardCache = saved;
-}
-
-function priceCacheFresh(at: number): boolean {
-  return Date.now() - at < PRICE_MS;
 }
 
 function boardReady(data: Board): boolean {
@@ -231,16 +228,15 @@ async function rebuildBoard(fresh: boolean): Promise<Board> {
 
 export async function loadSmartMoney(fresh: boolean): Promise<SmartMoney> {
   if (!fresh && smartCache && Date.now() - smartCache.at < 6 * 60 * 60 * 1000) return smartCache.data;
-  const [books, insiders] = await Promise.all([
-    mapPool(MANAGERS, 2, (manager) => loadManager(manager)),
-    loadInsiders().catch(() => [] as InsiderFiling[]),
-  ]);
+  // Form 4 insiders live on the Insiders section (insiders.server.ts); not fetched twice.
+  const books = await mapPool(MANAGERS, 2, (manager) => loadManager(manager));
+  const insiders: InsiderFiling[] = [];
   const overlap = buildOverlap(books);
   const data: SmartMoney = {
     books,
     insiders,
     overlap,
-    note: "13Fs are quarterly and land about 45 days after the quarter. Form 4s are the closer-to-now insider prints. Read this weekly, not tick by tick.",
+    note: "13Fs are quarterly and land about 45 days after the quarter. Read this weekly, not tick by tick.",
   };
   smartCache = { at: Date.now(), data };
   return data;
@@ -1040,31 +1036,6 @@ function buildOverlap(books: ManagerBook[]): Overlap[] {
     .slice(0, 12);
 }
 
-async function loadInsiders(): Promise<InsiderFiling[]> {
-  const end = new Date();
-  const start = new Date(Date.now() - 6 * 86400000);
-  const iso = (date: Date) => date.toISOString().slice(0, 10);
-  const url = `https://efts.sec.gov/LATEST/search-index?forms=4&startdt=${iso(start)}&enddt=${iso(end)}&from=0&size=12`;
-  const json = await fetchJson(url, SEC_UA, 15000);
-  const hits = json?.hits?.hits ?? [];
-  return hits.map((hit: { _source?: Record<string, unknown> }) => {
-    const source = hit._source ?? {};
-    const names = ((source.display_names as string[]) ?? []).map((name) =>
-      name.replace(/\s*\(CIK[^)]*\)/i, "").replace(/\s+/g, " ").trim(),
-    );
-    const ciks = (source.ciks as string[]) ?? [];
-    const adsh = String(source.adsh ?? "");
-    const cik = String(Number(ciks[1] || ciks[0] || "0"));
-    const folder = adsh.replace(/-/g, "");
-    return {
-      filed: String(source.file_date ?? ""),
-      names: names.filter(Boolean),
-      url: adsh
-        ? `https://www.sec.gov/Archives/edgar/data/${cik}/${folder}/${adsh}-index.html`
-        : "https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=4&owner=include",
-    };
-  });
-}
 
 function valueOn(series: Obs[], date: string, maxGap: number): number | null {
   let best: Obs | null = null;

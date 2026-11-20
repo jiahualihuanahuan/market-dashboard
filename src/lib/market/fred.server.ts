@@ -1,5 +1,6 @@
 import { readCache, writeCache } from "./store.server.ts";
 import { fetchTextRetry, singleFlight } from "./fetch-util.ts";
+import { schedule } from "./schedule.ts";
 import { mergeTail, parseFredCsv, planFred, sliceFrom, type FredEntry, type Obs } from "./fred.ts";
 
 /**
@@ -39,7 +40,7 @@ function csvUrl(id: string, cosd: string): string {
 /** Observations for `id` from `start` (YYYY-MM-DD, or "" for the full history). */
 export async function fredObs(id: string, start = "", options: { fresh?: boolean; timeoutMs?: number } = {}): Promise<Obs[]> {
   const all = entries();
-  const plan = planFred(all[id], start, Date.now(), options.fresh === true);
+  const plan = planFred(all[id], start, Date.now(), options.fresh === true, schedule().fredMs);
   if (plan.kind === "hit") return sliceFrom(all[id].obs, start);
   const key = `${id}|${plan.kind}|${plan.kind === "tail" ? plan.cosd : plan.from}`;
   return singleFlight(key, async () => {

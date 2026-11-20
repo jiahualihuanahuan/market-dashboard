@@ -216,7 +216,7 @@ function Famous() {
   });
 
   if (query.isPending) {
-    return <Panel title="Reading SEC filings" kicker="13Fs and the last few days of Form 4s"><p className="text-sm text-muted">This usually takes a few seconds.</p></Panel>;
+    return <Panel title="Reading SEC filings" kicker="13F filings"><p className="text-sm text-muted">This usually takes a few seconds.</p></Panel>;
   }
   if (query.isError || !query.data) {
     return (
@@ -231,7 +231,7 @@ function Famous() {
   return (
     <div className="grid gap-4">
       <p className="text-sm text-muted">
-        A 13F is the quarterly list of US stocks a large manager must file with the SEC, usually about 45 days after the quarter ends. It is late, and it misses bets against stocks and most foreign holdings. A Form 4 is the notice when a director or senior officer buys or sells their own company’s shares. That one is much closer to today. {data.note}
+        A 13F is the quarterly list of US stocks a large manager must file with the SEC, usually about 45 days after the quarter ends. It is late, and it misses bets against stocks and most foreign holdings. Insider buys and sells (Form 4s) are in the Insiders section of this tab.
       </p>
       <div className="flex justify-end">
         <Button
@@ -263,19 +263,6 @@ function Famous() {
             ))}
           </ul>
         ) : null}
-      </Panel>
-      <Panel title="Recent Form 4s" kicker="Last several days, issuer and reporting person as the SEC lists them.">
-        <ul className="grid gap-2">
-          {data.insiders.map((row) => (
-            <li key={row.url + row.filed} className="flex flex-col gap-1 border-b border-line py-2 sm:flex-row sm:justify-between">
-              <span className="text-sm">{row.names.join(" · ") || "Unnamed"}</span>
-              <a className="font-mono text-xs text-muted underline-offset-2 hover:underline" href={row.url} target="_blank" rel="noreferrer">
-                {row.filed}
-              </a>
-            </li>
-          ))}
-        </ul>
-        {data.insiders.length === 0 ? <p className="text-sm text-muted">No Form 4s came back for the window.</p> : null}
       </Panel>
     </div>
   );
