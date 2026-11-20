@@ -22,10 +22,9 @@ import {
 } from "lucide-react";
 import { getBoard, getFedWatch, getSmartMoney } from "@/lib/market/board.functions";
 import { useDesk } from "@/lib/market/settings";
-import { fmtBp, fmtPrice } from "@/lib/market/format";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import type { TabId } from "@/lib/market/tabs";
+import { SECTIONS, type SectionId, type TabId } from "@/lib/market/tabs";
 import { Overview } from "@/components/dashboard/overview";
 import { Panic } from "@/components/dashboard/panic";
 import { Yields } from "@/components/dashboard/yields";
@@ -45,26 +44,32 @@ import { SettingsPanel } from "@/components/dashboard/settings-panel";
 import { LookthruApp } from "@/components/lookthru/app";
 
 const NAV: { id: TabId; label: string; icon: typeof LayoutDashboard }[] = [
-  { id: "overview", label: "Overview", icon: LayoutDashboard },
-  { id: "panic", label: "Panic", icon: Siren },
-  { id: "macro", label: "Macro", icon: CalendarDays },
-  { id: "yields", label: "Yield curve", icon: LineChart },
-  { id: "commodities", label: "Commodities", icon: Layers },
-  { id: "heatmap", label: "Heatmap", icon: LayoutGrid },
-  { id: "valuation", label: "Valuation", icon: Scale },
-  { id: "stability", label: "Stability", icon: ShieldAlert },
-  { id: "frontier", label: "Frontier", icon: Spline },
-  { id: "flows", label: "Flows", icon: ArrowLeftRight },
-  { id: "options", label: "Options", icon: Sigma },
-  { id: "dark", label: "Dark pool", icon: EyeOff },
-  { id: "smart", label: "Smart money", icon: Landmark },
-  { id: "insiders", label: "Insiders", icon: Users },
-  { id: "sectors", label: "Sectors", icon: PieChart },
-  { id: "lookthru", label: "Lookthru", icon: Waypoints },
+  { id: "markets", label: "Markets", icon: LayoutDashboard },
+  { id: "risk", label: "Risk", icon: ShieldAlert },
+  { id: "money", label: "Money flow", icon: Landmark },
+  { id: "portfolio", label: "Portfolio", icon: Waypoints },
   { id: "settings", label: "Settings", icon: Settings },
 ];
 
-const SELF_CONTAINED = new Set<TabId>(["lookthru", "smart", "insiders", "settings", "heatmap", "valuation", "stability", "frontier", "flows", "options", "dark"]);
+const SECTION_INFO: Record<SectionId, { label: string; icon: typeof LayoutDashboard; board?: boolean }> = {
+  overview: { label: "Overview", icon: LayoutDashboard, board: true },
+  heatmap: { label: "Heatmap", icon: LayoutGrid },
+  sectors: { label: "Sectors", icon: PieChart, board: true },
+  commodities: { label: "Commodities", icon: Layers, board: true },
+  panic: { label: "Panic", icon: Siren, board: true },
+  stability: { label: "Stability", icon: ShieldAlert },
+  yields: { label: "Yield curve and the Fed", icon: LineChart, board: true },
+  macro: { label: "Macro", icon: CalendarDays, board: true },
+  insiders: { label: "Insiders", icon: Users },
+  smart: { label: "Smart money (13F)", icon: Landmark },
+  flows: { label: "ETF flows", icon: ArrowLeftRight },
+  dark: { label: "Dark pool", icon: EyeOff },
+  options: { label: "Options", icon: Sigma },
+  lookthru: { label: "Lookthru", icon: Waypoints },
+  frontier: { label: "Frontier", icon: Spline },
+  valuation: { label: "Valuation", icon: Scale },
+  settings: { label: "Zones and thresholds", icon: Settings },
+};
 
 export function Desk() {
   const search = useSearch({ from: "/" });
@@ -72,12 +77,20 @@ export function Desk() {
   const client = useQueryClient();
   const [refreshing, setRefreshing] = useState(false);
   const [ready, setReady] = useState(false);
+  const sections = SECTIONS[search.tab] as readonly SectionId[];
+  // First section open by default; a bookmarked section opens too. Closed sections never mount, so they never fetch.
+  const [open, setOpen] = useState<Set<SectionId>>(() => new Set([sections[0]!, ...(search.section ? [search.section] : [])]));
+  useEffect(() => {
+    setOpen(new Set([sections[0]!, ...(search.section ? [search.section] : [])]));
+  }, [search.tab, search.section, sections]);
+  const needsBoard = sections.some((id) => open.has(id) && SECTION_INFO[id].board);
   const board = useQuery({
     queryKey: ["market-board"],
     queryFn: () => getBoard({ data: { fresh: false, live: true } }),
     staleTime: 50_000,
     refetchInterval: 60_000,
     refetchIntervalInBackground: false,
+    enabled: needsBoard,
   });
 
   useEffect(() => {
@@ -85,10 +98,30 @@ export function Desk() {
     setReady(true);
   }, []);
 
-  const needsBoard = !SELF_CONTAINED.has(search.tab);
   const data = board.data;
-  const vix = data?.quotes.find((quote) => quote.symbol === "^VIX");
   const active = NAV.find((item) => item.id === search.tab) ?? NAV[0];
+
+  const render = (id: SectionId) => {
+    switch (id) {
+      case "overview": return data ? <Overview board={data} /> : null;
+      case "panic": return data ? <Panic board={data} /> : null;
+      case "yields": return data ? <Yields board={data} /> : null;
+      case "commodities": return data ? <Commodities board={data} /> : null;
+      case "sectors": return data ? <Sectors board={data} /> : null;
+      case "macro": return data ? <Macro board={data} /> : null;
+      case "heatmap": return <HeatmapTab />;
+      case "valuation": return <ValuationTab />;
+      case "stability": return <StabilityTab />;
+      case "frontier": return <FrontierTab />;
+      case "flows": return <FlowsTab />;
+      case "options": return <OptionsTab />;
+      case "dark": return <DarkTab />;
+      case "smart": return <Smart />;
+      case "insiders": return <InsidersTab />;
+      case "lookthru": return <LookthruApp />;
+      case "settings": return ready ? <SettingsPanel /> : <p className="text-sm text-muted">Reading saved zones.</p>;
+    }
+  };
 
   return (
     <div className="min-h-screen bg-bg text-fg">
@@ -106,28 +139,16 @@ export function Desk() {
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Pill label="VIX" value={vix ? fmtPrice(vix.price) : "—"} />
-            <Pill label="10y–2y" value={data ? fmtBp(data.t10y2y) : "—"} />
             <Button
               variant="line"
-              disabled={refreshing || board.isPending}
+              disabled={refreshing}
               onClick={async () => {
                 setRefreshing(true);
                 try {
-                  if (search.tab === "smart") {
-                    const next = await getSmartMoney({ data: { fresh: true } });
-                    client.setQueryData(["smart-money"], next);
-                  } else if (SELF_CONTAINED.has(search.tab)) {
-                    window.dispatchEvent(new Event("desk-refresh"));
-                  } else if (search.tab !== "settings") {
-                    if (search.tab === "overview") window.dispatchEvent(new Event("desk-refresh"));
-                    const next = await getBoard({ data: { fresh: true, live: true } });
-                    client.setQueryData(["market-board"], next);
-                    if (search.tab === "yields") {
-                      const fed = await getFedWatch({ data: { fresh: true } });
-                      client.setQueryData(["fedwatch"], fed);
-                    }
-                  }
+                  if (open.has("smart")) client.setQueryData(["smart-money"], await getSmartMoney({ data: { fresh: true } }));
+                  window.dispatchEvent(new Event("desk-refresh"));
+                  if (needsBoard) client.setQueryData(["market-board"], await getBoard({ data: { fresh: true, live: true } }));
+                  if (open.has("yields")) client.setQueryData(["fedwatch"], await getFedWatch({ data: { fresh: true } }));
                 } finally {
                   setRefreshing(false);
                 }
@@ -147,7 +168,7 @@ export function Desk() {
               <button
                 key={item.id}
                 type="button"
-                onClick={() => navigate({ search: (prev) => ({ ...prev, tab: item.id }) })}
+                onClick={() => navigate({ search: (prev) => ({ ...prev, tab: item.id, section: "" }) })}
                 className={cn(
                   "flex h-11 shrink-0 items-center gap-2 rounded-md px-3 text-sm md:w-full",
                   on ? "bg-elevated text-fg" : "text-muted hover:bg-surface hover:text-fg",
@@ -170,25 +191,36 @@ export function Desk() {
               <p className="mt-1 text-sm text-muted">{board.error instanceof Error ? board.error.message : "Try refresh."}</p>
             </div>
           ) : null}
-          {data && search.tab === "overview" ? <Overview board={data} /> : null}
-          {data && search.tab === "panic" ? <Panic board={data} /> : null}
-          {data && search.tab === "yields" ? <Yields board={data} /> : null}
-          {data && search.tab === "commodities" ? <Commodities board={data} /> : null}
-          {search.tab === "heatmap" ? <HeatmapTab /> : null}
-          {search.tab === "valuation" ? <ValuationTab /> : null}
-          {search.tab === "stability" ? <StabilityTab /> : null}
-          {search.tab === "frontier" ? <FrontierTab /> : null}
-          {search.tab === "flows" ? <FlowsTab /> : null}
-          {search.tab === "options" ? <OptionsTab /> : null}
-          {search.tab === "dark" ? <DarkTab /> : null}
-          {search.tab === "smart" ? <Smart /> : null}
-          {search.tab === "insiders" ? <InsidersTab /> : null}
-          {data && search.tab === "sectors" ? <Sectors board={data} /> : null}
-          {data && search.tab === "macro" ? <Macro board={data} /> : null}
-          {search.tab === "lookthru" ? <LookthruApp /> : null}
-          {search.tab === "settings" ? (
-            ready ? <SettingsPanel /> : <p className="text-sm text-muted">Reading saved zones.</p>
-          ) : null}
+          <div className="grid gap-3">
+            {sections.map((id) => {
+              const info = SECTION_INFO[id];
+              const Icon = info.icon;
+              const isOpen = open.has(id);
+              if (sections.length === 1) return <div key={id}>{render(id)}</div>;
+              return (
+                <section key={id} className="rounded-xl border border-line">
+                  <button
+                    type="button"
+                    aria-expanded={isOpen}
+                    onClick={() =>
+                      setOpen((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(id)) next.delete(id);
+                        else next.add(id);
+                        return next;
+                      })
+                    }
+                    className="flex h-11 w-full items-center gap-2 px-4 text-left text-sm font-medium hover:bg-surface"
+                  >
+                    <Icon className="size-4 text-muted" aria-hidden="true" />
+                    <span className="flex-1">{info.label}</span>
+                    <span className="font-mono text-xs text-muted">{isOpen ? "hide" : "show"}</span>
+                  </button>
+                  {isOpen ? <div className="border-t border-line p-4">{render(id)}</div> : null}
+                </section>
+              );
+            })}
+          </div>
           <p className="mt-8 max-w-2xl text-xs text-muted">
             {data?.live
               ? "Prices are the latest trade on the public feed, not the official close. No orders leave this page."
@@ -197,14 +229,5 @@ export function Desk() {
         </main>
       </div>
     </div>
-  );
-}
-
-function Pill({ label, value }: { label: string; value: string }) {
-  return (
-    <span className="inline-flex h-11 items-center gap-2 rounded-full border border-line px-3 font-mono text-xs">
-      <span className="text-muted">{label}</span>
-      <span className="tabular-nums text-fg">{value}</span>
-    </span>
   );
 }
