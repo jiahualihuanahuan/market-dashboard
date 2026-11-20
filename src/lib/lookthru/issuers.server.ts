@@ -1,4 +1,5 @@
 import { tickerFromCompanyName } from "./catalog";
+import { fileHoldings, hasFileHoldings } from "./holdings-file";
 import {
   holdingsAreUsable,
   parseEvolveCsv,
@@ -140,7 +141,7 @@ const EVOLVE = new Set([
 
 const PURPOSE = new Set(["PDF", "PYF", "PAYF", "PDIV", "PID", "REM", "PSA", "BTCC", "KILO"]);
 
-export type IssuerName = "harvest" | "hamilton" | "evolve" | "purpose";
+export type IssuerName = "harvest" | "hamilton" | "evolve" | "purpose" | "file";
 
 export type IssuerHoldings = {
   holdings: HoldingLine[];
@@ -164,7 +165,7 @@ export function issuerFamily(symbol: string): IssuerName | null {
 }
 
 export function isIssuerFundTicker(symbol: string): boolean {
-  return issuerFamily(symbol) !== null;
+  return issuerFamily(symbol) !== null || hasFileHoldings(symbol);
 }
 
 function isCanadianListed(symbol: string, currency?: string): boolean {
@@ -356,6 +357,11 @@ export async function fetchIssuerHoldings(
   currency?: string,
 ): Promise<IssuerHoldings | null> {
   const key = stripShareClass(symbol);
+  // Pre-scraped holdings file (data volume) wins over live issuer pages; checked before the
+  // cache so a refreshed file shows up on the next lookup.
+  const fromFile = fileHoldings(symbol);
+  if (fromFile) return { holdings: fromFile.holdings, asOf: fromFile.asOf, issuer: "file" };
+
   const cached = cache.get(key);
   if (cached && Date.now() - cached.at < TTL_MS) return cached.value;
 

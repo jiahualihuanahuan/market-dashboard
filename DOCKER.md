@@ -50,6 +50,17 @@ HOST_PORT=8080
 docker compose exec market-desk cat /data/care.token
 ```
 
+## Lookthru 预先抓取的持仓（可选）
+
+Lookthru 会先读数据卷里的 `/data/lookthru/holdings.json`，没有这只基金才去发行商网站现抓。文件由 `covered-call-holdings/scrape.py` 生成（加拿大备兑/期权收益 ETF），不进 git。
+
+```bash
+docker compose exec market-desk mkdir -p /data/lookthru
+docker compose cp <路径>/2026-11-19/lookthru/holdings.json market-desk:/data/lookthru/holdings.json
+```
+
+不用重启：文件一改，下一次查询就读新的。换路径用环境变量 `LOOKTHRU_HOLDINGS_FILE`。格式：`{"funds": {"HMAX.TO": {"asOf": "...", "holdings": [{"symbol","name","weight","sector"}]}}}`，`weight` 是小数（0.245 = 24.5%）。
+
 ## 从别的地方访问
 
 - 同一 Wi-Fi / 局域网：用宿主机的局域网 IP，确认防火墙放行 `HOST_PORT`。
